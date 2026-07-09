@@ -1513,7 +1513,7 @@ var plugins = (() => {
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.0.1";
+  var PLUGIN_VERSION = "1.0.2";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -2474,7 +2474,6 @@ var plugins = (() => {
       return {
         childList: true,
         subtree: true,
-        characterData: true,
         attributes: true,
         attributeOldValue: true,
         attributeFilter: ["data-guid", APPLIED_ATTR, GUID_ATTR, COLORED_ATTR, ICON_ATTR, "class"]
@@ -2502,6 +2501,20 @@ var plugins = (() => {
       }
     }
     /**
+     * True when a mutation node sits inside an inline-ref subtree — not plain text that merely
+     * shares a row with refs (typing after a chip must not re-decorate the whole line).
+     *
+     * @param {Node} node
+     * @returns {boolean}
+     */
+    _refRelatedMutationNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+      if (!(node instanceof Element)) return false;
+      if (node.classList.contains("lineitem-hashtag") || node.classList.contains("lineitem-hashtag-input")) return false;
+      if (node.matches(".lineitem-ref, .lineitem-ref-title, .lineitem-lineref, [data-guid]")) return true;
+      return !!node.closest(".lineitem-ref, .lineitem-ref-title");
+    }
+    /**
      * Incremental, same-frame decoration for mutation batches. Collects the nearest
      * decoratable containers around each mutation and runs the decorate pass on just those
      * subtrees, synchronously (pre-paint).
@@ -2511,15 +2524,10 @@ var plugins = (() => {
       const roots = /* @__PURE__ */ new Set();
       const foldRoots = /* @__PURE__ */ new Set();
       const add = /* @__PURE__ */ __name((node) => {
-        if (!node) return;
-        if (node.nodeType === Node.TEXT_NODE) {
-          add(node.parentElement);
-          return;
-        }
+        if (!node || !this._refRelatedMutationNode(node)) return;
+        if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
         if (!(node instanceof HTMLElement)) return;
-        if (node.hasAttribute("data-guid") || node.hasAttribute(APPLIED_ATTR) || node.querySelector("[data-guid]")) {
-          roots.add(node.parentElement || node);
-        }
+        roots.add(node.parentElement || node);
       }, "add");
       for (const m of mutations) {
         if (m.type === "attributes" && m.attributeName === "class") {
@@ -2530,11 +2538,13 @@ var plugins = (() => {
           if (wasFolded !== nowFolded) foldRoots.add(t);
           continue;
         }
+        if (m.type === "attributes") {
+          add(m.target);
+          continue;
+        }
         if (m.type === "childList") {
           for (const n of m.addedNodes) add(n);
-          if (m.removedNodes.length && m.target instanceof HTMLElement) add(m.target);
-        } else {
-          add(m.target);
+          for (const n of m.removedNodes) add(n);
         }
       }
       if (foldRoots.size) {
@@ -3333,7 +3343,6 @@ var plugins = (() => {
 				padding-left: calc(var(--plg-ci-chip-pad-l, 0px) - var(--plg-ci-chip-offset-x, 0px));
 				box-shadow: inset 0 0 0 var(--plg-ci-chip-border-width, 0px) var(--plg-ci-outline-color, transparent) !important;
 				box-sizing: border-box;
-				transition: background-color 90ms ease-out, box-shadow 90ms ease-out;
 			`;
     }
     /** Inject persistent icon rules for every persisted guid→icon pair (batched probe). */
@@ -3438,6 +3447,12 @@ var plugins = (() => {
 			span[data-guid],
 			span[data-guid] .ti {
 				transition: color 90ms ease-out, background-color 90ms ease-out;
+			}
+			/* Chip titles carry their own background paint \u2014 no transition or style recalc
+			   during plain-text typing on the same row flashes/phases the chip fill. */
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid],
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}] {
+				transition: none !important;
 			}
 
 				/* Color application \u2014 exact title/suffix targets only. Persistent per-guid
@@ -3617,7 +3632,6 @@ var plugins = (() => {
 				padding-left: calc(var(--plg-ci-chip-pad-l, 0px) - var(--plg-ci-chip-offset-x, 0px));
 				box-shadow: inset 0 0 0 var(--plg-ci-chip-border-width, 0px) var(--plg-ci-outline-color, transparent) !important;
 				box-sizing: border-box;
-				transition: background-color 90ms ease-out, box-shadow 90ms ease-out;
 			}
 			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${COLORED_ATTR}="1"]:hover,
 			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${COLORED_ATTR}="1"]:hover {
