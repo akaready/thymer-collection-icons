@@ -1513,7 +1513,7 @@ var plugins = (() => {
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.0.0";
+  var PLUGIN_VERSION = "1.0.1";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -2700,54 +2700,48 @@ var plugins = (() => {
           this._log("color-var rule failed", collGuid, err);
         }
         try {
-          const chipHostSel = guids.map((g) => this._chipHostSelectors(cssEscape(g))).join(",");
-          const chipLayerSel = guids.map((g) => this._chipLayerSelectors(cssEscape(g))).join(",");
+          const chipShellSel = guids.map((g) => this._chipShellSelectors(cssEscape(g))).join(",");
+          const chipPaintSel = guids.map((g) => this._chipPaintSelectors(cssEscape(g))).join(",");
           sheet.insertRule(
-            `${chipHostSel} {
-						${COLOR_VAR}: ${color};
-						--plg-ci-icon-color: ${iconColor};
-						--plg-ci-text-color: ${textColor};
-						--plg-ci-outline-color: ${outlineColor};
+            `${chipShellSel} {
 						background-color: transparent !important;
 						background-image: none !important;
-						position: relative !important;
-						isolation: isolate;
-						overflow: visible !important;
 						text-decoration: none !important;
 						border-bottom: none !important;
 					}`,
             sheet.cssRules.length
           );
           sheet.insertRule(
-            `${chipLayerSel} {
-						content: "";
-						position: absolute;
-						z-index: -1;
-						pointer-events: none;
-						top: calc(var(--plg-ci-chip-offset-y, 0px) - var(--plg-ci-chip-pad-t, 0px));
-						right: calc(0px - var(--plg-ci-chip-offset-x, 0px) - var(--plg-ci-chip-pad-r, 0px));
-						bottom: calc(0px - var(--plg-ci-chip-offset-y, 0px) - var(--plg-ci-chip-pad-b, 0px));
-						left: calc(var(--plg-ci-chip-offset-x, 0px) - var(--plg-ci-chip-pad-l, 0px));
-						border-radius: var(--plg-ci-chip-radius, 4px);
-						background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix, 32%), var(--plg-ci-chip-shade, #000)) !important;
-						border: var(--plg-ci-chip-border-width, 0px) solid transparent !important;
-						box-sizing: border-box;
-						transition: background-color 90ms ease-out, border-color 90ms ease-out;
+            `${chipPaintSel} {
+						${COLOR_VAR}: ${color};
+						--plg-ci-icon-color: ${iconColor};
+						--plg-ci-text-color: ${textColor};
+						--plg-ci-outline-color: ${outlineColor};
+						vertical-align: baseline !important;
+						text-decoration: none !important;
+						border-bottom: none !important;
+						${this._chipPaintCss()}
 					}`,
             sheet.cssRules.length
           );
           sheet.insertRule(
-            `body[data-${ROOT_CLASS}-chip-outline="show"] ${chipLayerSel} {
-						border-color: var(--plg-ci-outline-color, var(${COLOR_VAR})) !important;
-					}`,
-            sheet.cssRules.length
-          );
-          sheet.insertRule(
-            `${chipLayerSel.replace(/::after/g, ":has(.lineitem-ref-title:hover)::after")} {
+            `${chipPaintSel}:hover {
 						background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix-hover, 50%), var(--plg-ci-chip-shade, #000)) !important;
 					}`,
             sheet.cssRules.length
           );
+          const iconHoverPinSel = guids.flatMap((g) => [
+            `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref:has(.lineitem-lineref:hover):not(:has(.lineitem-ref-title:hover)) > .lineitem-ref-title[data-guid="${cssEscape(g)}"]`,
+            `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref:has(.lineitem-lineref:hover):not(:has(.lineitem-ref-title:hover)) > .lineitem-ref-title[${GUID_ATTR}="${cssEscape(g)}"]`
+          ]).join(",");
+          if (iconHoverPinSel) {
+            sheet.insertRule(
+              `${iconHoverPinSel} {
+							background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix, 32%), var(--plg-ci-chip-shade, #000)) !important;
+						}`,
+              sheet.cssRules.length
+            );
+          }
         } catch (err) {
           this._log("persistent chip rule failed", collGuid, err);
         }
@@ -2819,48 +2813,37 @@ var plugins = (() => {
       try {
         sheet.insertRule(`span[data-guid="${g}"] { ${vars} }`, sheet.cssRules.length);
         sheet.insertRule(`[${GUID_ATTR}="${g}"] { ${vars} }`, sheet.cssRules.length);
-        const chipHostSel = this._chipHostSelectors(g);
-        const chipLayerSel = this._chipLayerSelectors(g);
+        const chipShellSel = this._chipShellSelectors(g);
+        const chipPaintSel = this._chipPaintSelectors(g);
         sheet.insertRule(
-          `${chipHostSel} {
-						${vars}
+          `${chipShellSel} {
 						background-color: transparent !important;
 						background-image: none !important;
-						position: relative !important;
-						isolation: isolate;
-						overflow: visible !important;
 						text-decoration: none !important;
 						border-bottom: none !important;
 					}`,
           sheet.cssRules.length
         );
         sheet.insertRule(
-          `${chipLayerSel} {
-						content: "";
-						position: absolute;
-						z-index: -1;
-						pointer-events: none;
-						top: calc(var(--plg-ci-chip-offset-y, 0px) - var(--plg-ci-chip-pad-t, 0px));
-						right: calc(0px - var(--plg-ci-chip-offset-x, 0px) - var(--plg-ci-chip-pad-r, 0px));
-						bottom: calc(0px - var(--plg-ci-chip-offset-y, 0px) - var(--plg-ci-chip-pad-b, 0px));
-						left: calc(var(--plg-ci-chip-offset-x, 0px) - var(--plg-ci-chip-pad-l, 0px));
-						border-radius: var(--plg-ci-chip-radius, 4px);
-						background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix, 32%), var(--plg-ci-chip-shade, #000)) !important;
-						border: var(--plg-ci-chip-border-width, 0px) solid transparent !important;
-						box-sizing: border-box;
-						transition: background-color 90ms ease-out, border-color 90ms ease-out;
+          `${chipPaintSel} {
+						${vars}
+						vertical-align: baseline !important;
+						text-decoration: none !important;
+						border-bottom: none !important;
+						${this._chipPaintCss()}
 					}`,
           sheet.cssRules.length
         );
         sheet.insertRule(
-          `body[data-${ROOT_CLASS}-chip-outline="show"] ${chipLayerSel} {
-						border-color: var(--plg-ci-outline-color, var(${COLOR_VAR})) !important;
-					}`,
-          sheet.cssRules.length
-        );
-        sheet.insertRule(
-          `${chipLayerSel.replace(/::after/g, ":has(.lineitem-ref-title:hover)::after")} {
+          `${chipPaintSel}:hover {
 						background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix-hover, 50%), var(--plg-ci-chip-shade, #000)) !important;
+					}`,
+          sheet.cssRules.length
+        );
+        sheet.insertRule(
+          `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref:has(.lineitem-lineref:hover):not(:has(.lineitem-ref-title:hover)) > .lineitem-ref-title[data-guid="${g}"],
+					 body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref:has(.lineitem-lineref:hover):not(:has(.lineitem-ref-title:hover)) > .lineitem-ref-title[${GUID_ATTR}="${g}"] {
+						background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix, 32%), var(--plg-ci-chip-shade, #000)) !important;
 					}`,
           sheet.cssRules.length
         );
@@ -3317,25 +3300,41 @@ var plugins = (() => {
         `body[data-${ROOT_CLASS}-arrow="replace"] .editor-panel .lineitem-lineref[data-guid="${escapedGuid}"]`
       ].map((selector) => `${selector}${suffix}`).join(",");
     }
-    /** Persistent chip host selectors — keyed on Thymer's data-guid so paint survives redraws. */
-    _chipHostSelectors(escapedGuid) {
+    /** Outer ref wrapper — strip native hover/underline paint; chip lives on the title only. */
+    _chipShellSelectors(escapedGuid) {
       return [
         `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[data-guid="${escapedGuid}"]`,
-        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[${GUID_ATTR}="${escapedGuid}"]`,
-        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid="${escapedGuid}"]`,
-        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}="${escapedGuid}"]`,
-        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref span[data-guid="${escapedGuid}"]:not(.lineitem-hashtag)`
+        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[${GUID_ATTR}="${escapedGuid}"]`
       ].join(",");
     }
-    /** Persistent chip ::after layer selectors. */
-    _chipLayerSelectors(escapedGuid) {
+    /**
+     * Title text box that carries chip paint. Never the outer `.lineitem-ref` wrapper —
+     * an absolute ::after on the wrapper spans the whole multi-line union box (empty
+     * second-line gutters) or collapses to a sliver at line breaks.
+     */
+    _chipPaintSelectors(escapedGuid) {
       return [
-        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[data-guid="${escapedGuid}"]::after`,
-        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[${GUID_ATTR}="${escapedGuid}"]::after`,
-        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid="${escapedGuid}"]::after`,
-        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}="${escapedGuid}"]::after`,
-        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref span[data-guid="${escapedGuid}"]:not(.lineitem-hashtag)::after`
+        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid="${escapedGuid}"]`,
+        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}="${escapedGuid}"]`,
+        `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref span[data-guid="${escapedGuid}"]:not(.lineitem-hashtag):not(.lineitem-ref-title)`
       ].join(",");
+    }
+    /** Shared chip paint declarations — background on the title with box-decoration-break: clone. */
+    _chipPaintCss() {
+      return `
+				background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix, 32%), var(--plg-ci-chip-shade, #000)) !important;
+				background-image: none !important;
+				border-radius: var(--plg-ci-chip-radius, 4px);
+				box-decoration-break: clone;
+				-webkit-box-decoration-break: clone;
+				padding-top: calc(var(--plg-ci-chip-pad-t, 0px) - var(--plg-ci-chip-offset-y, 0px));
+				padding-right: calc(var(--plg-ci-chip-pad-r, 0px) + var(--plg-ci-chip-offset-x, 0px));
+				padding-bottom: calc(var(--plg-ci-chip-pad-b, 0px) + var(--plg-ci-chip-offset-y, 0px));
+				padding-left: calc(var(--plg-ci-chip-pad-l, 0px) - var(--plg-ci-chip-offset-x, 0px));
+				box-shadow: inset 0 0 0 var(--plg-ci-chip-border-width, 0px) var(--plg-ci-outline-color, transparent) !important;
+				box-sizing: border-box;
+				transition: background-color 90ms ease-out, box-shadow 90ms ease-out;
+			`;
     }
     /** Inject persistent icon rules for every persisted guid→icon pair (batched probe). */
     _rebuildPersistentIconRules() {
@@ -3574,15 +3573,12 @@ var plugins = (() => {
 				vertical-align: baseline !important;
 			}
 
-			/* Background chip: keyed on Thymer's data-guid so native styling never flashes
-			   while waiting for the decorate pass to stamp data-collection-icons-applied. */
+			/* Background chip: paint on .lineitem-ref-title only. box-decoration-break: clone
+			   keeps the chip on each wrapped line fragment; an absolute ::after on the outer
+			   .lineitem-ref spans the union box (gutters on continuation lines) or collapses
+			   to a sliver when the ref starts mid-line. */
 			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[data-guid],
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid],
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[${APPLIED_ATTR}="1"],
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${APPLIED_ATTR}="1"] {
-				position: relative !important;
-				isolation: isolate;
-				overflow: visible !important;
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[${APPLIED_ATTR}="1"] {
 				vertical-align: baseline !important;
 				background-color: transparent !important;
 				background-image: none !important;
@@ -3592,42 +3588,48 @@ var plugins = (() => {
 				border-bottom: none !important;
 				border-color: transparent !important;
 			}
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[data-guid][${COLORED_ATTR}="1"]::after,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[${APPLIED_ATTR}="1"][${COLORED_ATTR}="1"]::after,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${COLORED_ATTR}="1"]::after,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${COLORED_ATTR}="1"]::after {
-				content: "";
-				position: absolute;
-				z-index: -1;
-				pointer-events: none;
-				top: calc(var(--plg-ci-chip-offset-y, 0px) - var(--plg-ci-chip-pad-t, 0px));
-				right: calc(0px - var(--plg-ci-chip-offset-x, 0px) - var(--plg-ci-chip-pad-r, 0px));
-				bottom: calc(0px - var(--plg-ci-chip-offset-y, 0px) - var(--plg-ci-chip-pad-b, 0px));
-				left: calc(var(--plg-ci-chip-offset-x, 0px) - var(--plg-ci-chip-pad-l, 0px));
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid]:not([${COLORED_ATTR}="1"]),
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${APPLIED_ATTR}="1"]:not([${COLORED_ATTR}="1"]) {
+				vertical-align: baseline !important;
+				background-color: transparent !important;
+				background-image: none !important;
+				box-shadow: none !important;
+				text-decoration: none !important;
+				text-decoration-color: transparent !important;
+				border-bottom: none !important;
+				border-color: transparent !important;
+			}
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${COLORED_ATTR}="1"],
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${COLORED_ATTR}="1"] {
+				vertical-align: baseline !important;
+				text-decoration: none !important;
+				text-decoration-color: transparent !important;
+				border-bottom: none !important;
+				border-color: transparent !important;
 				background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix, 32%), var(--plg-ci-chip-shade, #000)) !important;
-				border: none !important;
+				background-image: none !important;
+				border-radius: var(--plg-ci-chip-radius, 4px);
+				box-decoration-break: clone;
+				-webkit-box-decoration-break: clone;
+				padding-top: calc(var(--plg-ci-chip-pad-t, 0px) - var(--plg-ci-chip-offset-y, 0px));
+				padding-right: calc(var(--plg-ci-chip-pad-r, 0px) + var(--plg-ci-chip-offset-x, 0px));
+				padding-bottom: calc(var(--plg-ci-chip-pad-b, 0px) + var(--plg-ci-chip-offset-y, 0px));
+				padding-left: calc(var(--plg-ci-chip-pad-l, 0px) - var(--plg-ci-chip-offset-x, 0px));
 				box-shadow: inset 0 0 0 var(--plg-ci-chip-border-width, 0px) var(--plg-ci-outline-color, transparent) !important;
-				border-radius: var(--plg-ci-chip-radius, 4px) !important;
 				box-sizing: border-box;
 				transition: background-color 90ms ease-out, box-shadow 90ms ease-out;
 			}
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[data-guid][${COLORED_ATTR}="1"]:has(.lineitem-ref-title:hover)::after,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[${APPLIED_ATTR}="1"][${COLORED_ATTR}="1"]:has(.lineitem-ref-title:hover)::after,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${COLORED_ATTR}="1"]:hover::after,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${COLORED_ATTR}="1"]:hover::after {
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${COLORED_ATTR}="1"]:hover,
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${COLORED_ATTR}="1"]:hover {
 				background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix-hover, 50%), var(--plg-ci-chip-shade, #000)) !important;
 			}
 			/* Icon-only hover must not brighten the chip or inherit row promotion. */
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref:has(.lineitem-lineref:hover):not(:has(.lineitem-ref-title:hover))[${COLORED_ATTR}="1"]::after,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[data-guid][${COLORED_ATTR}="1"]:has(.lineitem-lineref:hover):not(:has(.lineitem-ref-title:hover))::after,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${COLORED_ATTR}="1"]:has(.lineitem-lineref:hover):not(:hover)::after,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${COLORED_ATTR}="1"]:has(.lineitem-lineref:hover):not(:hover)::after {
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref:has(.lineitem-lineref:hover):not(:has(.lineitem-ref-title:hover)) > .lineitem-ref-title[data-guid][${COLORED_ATTR}="1"],
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref:has(.lineitem-lineref:hover):not(:has(.lineitem-ref-title:hover)) > .lineitem-ref-title[${GUID_ATTR}][${COLORED_ATTR}="1"] {
 				background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix, 32%), var(--plg-ci-chip-shade, #000)) !important;
 			}
 			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[data-guid]:hover,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[${APPLIED_ATTR}]:hover,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid]:hover,
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}]:hover {
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[${APPLIED_ATTR}]:hover {
 				background-color: transparent !important;
 				background-image: none !important;
 				box-shadow: none !important;
