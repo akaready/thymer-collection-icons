@@ -278,6 +278,7 @@ var plugins = (() => {
   line-height: 1;
   color: var(--tps-text-muted);
   transform: translateY(2px);
+  margin-right: var(--tps-space-1, 4px);
 }
 
 .tps-plugin-header-iconify {
@@ -1513,7 +1514,7 @@ var plugins = (() => {
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.0.2";
+  var PLUGIN_VERSION = "1.0.3";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
