@@ -1658,7 +1658,7 @@ var plugins = (() => {
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.0.3";
+  var PLUGIN_VERSION = "1.0.4";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -3692,7 +3692,8 @@ var plugins = (() => {
 				text-decoration: none !important;
 				text-decoration-line: none !important;
 				text-decoration-color: transparent !important;
-				border-bottom: none !important;
+				/* Do NOT zero border-bottom \u2014 that erased the resting hashtag underline
+				   on ref hover (hover-bleed fix regression). */
 				box-shadow: none !important;
 				outline: none !important;
 				transition: none !important;
