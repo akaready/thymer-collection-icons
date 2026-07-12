@@ -1658,7 +1658,7 @@ var plugins = (() => {
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.0.4";
+  var PLUGIN_VERSION = "1.0.5";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -2672,7 +2672,7 @@ var plugins = (() => {
         if (!node || !this._refRelatedMutationNode(node)) return;
         if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
         if (!(node instanceof HTMLElement)) return;
-        roots.add(node.parentElement || node);
+        roots.add(node.closest(".line-div, .listitem") || node.parentElement || node);
       }, "add");
       for (const m of mutations) {
         if (m.type === "attributes" && m.attributeName === "class") {
@@ -3749,7 +3749,13 @@ var plugins = (() => {
 				border-bottom: none !important;
 				border-color: transparent !important;
 			}
-			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid]:not([${COLORED_ATTR}="1"]),
+			/* Guarded on the applied marker on purpose. Thymer wipes every plugin attr when it
+			   re-renders a line, but keeps its own data-guid \u2014 an unguarded neutralizer here
+			   outranks the persistent per-guid chip rule (:not() adds its argument's
+			   specificity) and would force a re-rendered colored ref transparent, erasing the
+			   very fallback built to survive the re-render. Only strip refs we decorated and
+			   found colorless. */
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${APPLIED_ATTR}="1"]:not([${COLORED_ATTR}="1"]),
 			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${APPLIED_ATTR}="1"]:not([${COLORED_ATTR}="1"]) {
 				vertical-align: baseline !important;
 				background-color: transparent !important;
