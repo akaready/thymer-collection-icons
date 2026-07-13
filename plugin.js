@@ -472,6 +472,345 @@ var plugins = (() => {
   filter: brightness(1.2);
 }
 
+/* \u2500\u2500 Header controls: bug report + kill switch \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+
+/* Last flex item of the attr row; margin-left:auto pins the group to the
+   right edge, align-self:center opts out of the row's baseline alignment. */
+.tps-plugin-header-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tps-space-2, 8px);
+  margin-left: auto;
+  align-self: center;
+  padding-left: var(--tps-space-3, 12px);
+}
+
+.tps-plugin-header-bug {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--tps-radius-sm, 4px);
+  background: transparent;
+  color: var(--tps-text-muted);
+  cursor: pointer;
+  transition: color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out),
+              background-color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out),
+              border-color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out);
+}
+
+/* Undo the attr row's generic .ti treatment (translateY + margin) inside the button. */
+.tps-plugin-header-bug .ti {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+  transform: none;
+  margin: 0;
+}
+
+.tps-plugin-header-bug:hover {
+  color: var(--tps-text);
+  background: var(--tps-bg-hover);
+  border-color: var(--tps-border);
+}
+
+.tps-plugin-header-bug:focus-visible {
+  outline: 2px solid var(--tps-accent);
+  outline-offset: 2px;
+}
+
+.tps-switch {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--tps-border);
+  border-radius: var(--tps-radius-pill, 999px);
+  background: var(--tps-bg-input);
+  cursor: pointer;
+  transition: background-color var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out),
+              border-color var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out);
+}
+
+.tps-switch-knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--tps-radius-circle, 50%);
+  background: var(--tps-text-muted);
+  transition: transform var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out),
+              background-color var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out);
+}
+
+.tps-switch[aria-checked="true"] {
+  background: var(--tps-accent);
+  border-color: var(--tps-accent);
+}
+
+.tps-switch[aria-checked="true"] .tps-switch-knob {
+  transform: translateX(14px);
+  background: var(--tps-on-accent, #fff);
+}
+
+.tps-switch:focus-visible {
+  outline: 2px solid var(--tps-accent);
+  outline-offset: 2px;
+}
+
+.tps-switch[data-busy],
+.tps-switch:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Off-state "safe mode": dim the body, keep it interactive \u2014 edits stage in the
+   plugin's local drafts and apply on re-enable. Keyed off the pill's aria state
+   so the optimistic flip dims instantly and heal re-renders stay correct with
+   no JS. The header (pill, bug button, off-note) stays full opacity \u2014 exclude
+   any direct child containing it (collection-icons wraps the header in a row
+   element, so exclude by content, not class). */
+.tps-panel:has(.tps-plugin-header .tps-switch[aria-checked="false"]) > :not(:has(.tps-plugin-header)) {
+  opacity: 0.65;
+  transition: opacity var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out);
+}
+
+/* Rendered whenever the header has a kill switch; shown only while it's off. */
+.tps-plugin-header-off-note {
+  display: none;
+  margin: var(--tps-space-2, 8px) 0 0;
+  font-size: var(--tps-fs-hint, 12px);
+  line-height: var(--tps-lh-base, 1.4);
+  color: var(--tps-text-muted);
+}
+
+.tps-plugin-header:has(.tps-switch[aria-checked="false"]) .tps-plugin-header-off-note {
+  display: block;
+}
+
+/* \u2500\u2500 Feedback dialog (panel-scoped modal) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+
+/* The overlay positions against the .tps-panel root (the scroll container). */
+.tps-panel {
+  position: relative;
+}
+
+.tps-feedback-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tps-space-4);
+  background: color-mix(in srgb, var(--panel-bg-color, light-dark(#ffffff, #131316)) 55%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+@supports not ((backdrop-filter: blur(6px)) or (-webkit-backdrop-filter: blur(6px))) {
+  .tps-feedback-overlay {
+    background: color-mix(in srgb, var(--panel-bg-color, light-dark(#ffffff, #131316)) 90%, transparent);
+  }
+}
+
+/* Flex column with a growing description field: the card stretches to the
+   available panel height (capped) and the textarea absorbs the difference,
+   so the card itself never needs a scrollbar. */
+.tps-feedback-card {
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 100%);
+  height: min(760px, 100%);
+  overflow: auto;
+  background: var(--panel-bg-color, light-dark(#ffffff, #17171b));
+  border: 1px solid var(--tps-border);
+  border-radius: var(--tps-radius-lg);
+  padding: var(--tps-space-4);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+/* Rows keep their natural height \u2014 when content doesn't fit (e.g. the system
+   report drawer opens in a short panel) the CARD scrolls; rows must never be
+   squeezed into overlapping each other. Only the description field flexes. */
+.tps-feedback-card > * {
+  flex: 0 0 auto;
+}
+
+.tps-feedback-card > .tps-feedback-field--grow {
+  flex: 1 1 auto;
+}
+
+.tps-feedback-field--grow {
+  display: flex;
+  flex-direction: column;
+}
+
+.tps-feedback-field--grow .tps-feedback-textarea {
+  flex: 1 1 auto;
+  min-height: 72px;
+}
+
+.tps-feedback-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 var(--tps-space-2);
+}
+
+.tps-feedback-title {
+  margin: 0;
+  font-size: var(--tps-fs-label, 12.5px);
+  font-weight: var(--tps-fw-semibold, 600);
+  letter-spacing: var(--tps-ls-section, 0.06em);
+  text-transform: uppercase;
+  color: var(--tps-text);
+}
+
+.tps-feedback-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--tps-radius-sm, 4px);
+  background: transparent;
+  color: var(--tps-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tps-feedback-close:hover {
+  color: var(--tps-text);
+  background: var(--tps-bg-hover);
+  border-color: var(--tps-border);
+}
+
+.tps-feedback-close:focus-visible {
+  outline: 2px solid var(--tps-accent);
+  outline-offset: 2px;
+}
+
+.tps-feedback-hint {
+  margin: 0 0 var(--tps-space-3);
+  font-size: var(--tps-fs-hint, 12px);
+  line-height: var(--tps-lh-base, 1.4);
+  color: var(--tps-text-muted);
+}
+
+.tps-feedback-field {
+  display: block;
+  margin: 0 0 var(--tps-space-3);
+}
+
+.tps-feedback-label {
+  display: block;
+  margin: 0 0 var(--tps-space-1);
+  font-size: var(--tps-fs-label, 12.5px);
+  font-weight: var(--tps-fw-medium, 500);
+  color: var(--tps-text);
+}
+
+.tps-feedback-input,
+.tps-feedback-textarea {
+  width: 100%;
+  padding: var(--tps-space-1, 4px) var(--tps-space-2, 8px);
+  font-family: inherit;
+  font-size: var(--tps-fs-body, 13px);
+  line-height: var(--tps-lh-base, 1.4);
+  color: var(--tps-text);
+  background: var(--tps-bg-input);
+  border: 1px solid var(--tps-border);
+  border-radius: var(--tps-radius-sm, 4px);
+}
+
+.tps-feedback-textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.tps-feedback-input:focus,
+.tps-feedback-textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--tps-accent) 60%, transparent);
+}
+
+.tps-feedback-input[aria-invalid="true"],
+.tps-feedback-textarea[aria-invalid="true"] {
+  border-color: var(--tps-danger);
+}
+
+.tps-feedback-details {
+  margin: 0 0 var(--tps-space-3);
+}
+
+.tps-feedback-summary {
+  font-size: var(--tps-fs-hint, 12px);
+  color: var(--tps-text-muted);
+  cursor: pointer;
+}
+
+.tps-feedback-summary:hover {
+  color: var(--tps-text);
+}
+
+.tps-feedback-report {
+  margin: var(--tps-space-2) 0 0;
+  padding: var(--tps-space-2);
+  max-height: 140px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--tps-text-muted);
+  background: var(--tps-bg-input);
+  border: 1px solid var(--tps-divider);
+  border-radius: var(--tps-radius-sm, 4px);
+}
+
+/* Themed thin scrollbars \u2014 the card (short panels) and the report pre both scroll. */
+.tps-feedback-card,
+.tps-feedback-report {
+  scrollbar-width: thin;
+  scrollbar-color: var(--tps-border, rgba(127, 127, 127, 0.25)) transparent;
+}
+
+.tps-feedback-card::-webkit-scrollbar,
+.tps-feedback-report::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.tps-feedback-card::-webkit-scrollbar-track,
+.tps-feedback-report::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tps-feedback-card::-webkit-scrollbar-thumb,
+.tps-feedback-report::-webkit-scrollbar-thumb {
+  background: var(--tps-border, rgba(127, 127, 127, 0.25));
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.tps-feedback-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--tps-space-2);
+}
+
 /* \u2500\u2500 Section \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 
 .tps-section {
@@ -1375,39 +1714,301 @@ var plugins = (() => {
 }
 `;
 
+  // ../../shared/settings-ui/feedback.js
+  var MAX_URL_LENGTH = 7600;
+  function el(tag, props, ...children) {
+    const node = document.createElement(tag);
+    const dom = (
+      /** @type {any} */
+      node
+    );
+    if (props) {
+      for (const k in props) {
+        const v = props[k];
+        if (v == null || v === false) continue;
+        if (k === "class") node.className = v;
+        else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2).toLowerCase(), v);
+        else if (k in dom && typeof dom[k] !== "function") {
+          try {
+            dom[k] = v;
+          } catch {
+            node.setAttribute(k, v);
+          }
+        } else node.setAttribute(k, v === true ? "" : String(v));
+      }
+    }
+    for (const c of children.flat(Infinity)) {
+      if (c == null || c === false) continue;
+      node.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
+    }
+    return node;
+  }
+  __name(el, "el");
+  function versionFromConf(conf) {
+    if (!conf || typeof conf !== "object") return "";
+    if (typeof conf.version === "string" && conf.version) return conf.version;
+    const custom = conf.custom;
+    if (custom && typeof custom === "object") {
+      const v = (
+        /** @type {Record<string, unknown>} */
+        custom.pluginVersion
+      );
+      if (typeof v === "string") return v;
+    }
+    return "";
+  }
+  __name(versionFromConf, "versionFromConf");
+  async function collectSystemReport({ pluginName = "", pluginVersion = "", disabled = false, data } = {}) {
+    const ua = navigator.userAgent || "";
+    const lines = [];
+    lines.push(`Plugin: ${pluginName} v${pluginVersion}${disabled ? " (kill switch: OFF)" : ""}`);
+    lines.push(`App: ${/electron/i.test(ua) ? "Thymer desktop app (Electron)" : "Thymer web"}${location && location.host ? ` \xB7 ${location.host}` : ""}`);
+    lines.push(`UA: ${ua}`);
+    lines.push(`Platform: ${navigator.platform || "?"} \xB7 lang ${navigator.language || "?"} \xB7 tz ${Intl.DateTimeFormat().resolvedOptions().timeZone || "?"}`);
+    const dpr = Math.round((window.devicePixelRatio || 1) * 100) / 100;
+    lines.push(`Screen (css px): ${screen.width}x${screen.height} @${dpr}x (\u2248${Math.round(screen.width * dpr)}x${Math.round(screen.height * dpr)} device px) \xB7 viewport ${window.innerWidth}x${window.innerHeight}`);
+    try {
+      const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const themeClasses = Array.from(document.body.classList).filter((c) => /theme/i.test(c)).join(" ");
+      lines.push(`Appearance: ${dark ? "dark" : "light"}${reducedMotion ? " \xB7 reduced-motion" : ""}${themeClasses ? ` \xB7 body: ${themeClasses}` : ""}`);
+    } catch {
+    }
+    try {
+      const bits = [];
+      if (navigator.hardwareConcurrency) bits.push(`${navigator.hardwareConcurrency} cores`);
+      const devMem = (
+        /** @type {any} */
+        navigator.deviceMemory
+      );
+      if (devMem) bits.push(devMem >= 8 ? `RAM \u22658GB (API cap)` : `~${devMem}GB RAM`);
+      const heap = (
+        /** @type {any} */
+        performance.memory
+      );
+      if (heap && heap.usedJSHeapSize) bits.push(`JS heap ${Math.round(heap.usedJSHeapSize / 1048576)}MB of ${Math.round(heap.jsHeapSizeLimit / 1048576)}MB limit`);
+      bits.push(navigator.onLine === false ? "OFFLINE" : "online");
+      if (typeof performance.now === "function") bits.push(`session up ${Math.round(performance.now() / 6e4)}m`);
+      lines.push(`System: ${bits.join(" \xB7 ")}`);
+    } catch {
+    }
+    try {
+      if (navigator.storage && typeof navigator.storage.estimate === "function") {
+        const est = await navigator.storage.estimate();
+        if (est && est.usage != null) {
+          lines.push(`Storage: ${Math.round((est.usage || 0) / 1048576)}MB used${est.quota ? ` of ${Math.round(est.quota / 1048576)}MB quota` : ""}`);
+        }
+      }
+    } catch {
+    }
+    try {
+      if (data && typeof data.getAllGlobalPlugins === "function") {
+        const plugins = await data.getAllGlobalPlugins();
+        const listed = plugins.slice(0, 25).map((p) => {
+          let name = "";
+          let ver = "";
+          try {
+            name = p.getName?.() || "";
+          } catch {
+          }
+          try {
+            ver = versionFromConf(p.getConfiguration?.());
+          } catch {
+          }
+          return ver ? `${name} v${ver}` : name;
+        }).filter(Boolean);
+        if (listed.length) {
+          lines.push(`Global plugins, all installed (${plugins.length}): ${listed.join(", ")}${plugins.length > 25 ? ", \u2026" : ""}`);
+        }
+      }
+      if (data && typeof /** @type {any} */
+      data.getAllCollections === "function") {
+        const collections = await /** @type {any} */
+        data.getAllCollections();
+        if (Array.isArray(collections)) lines.push(`Collection-level plugins: ${collections.length} (names withheld)`);
+      }
+    } catch {
+    }
+    return lines.join("\n");
+  }
+  __name(collectSystemReport, "collectSystemReport");
+  function buildIssueUrl({ repository, description, discord, email, report }) {
+    const repo = repository.replace(/\/+$/, "");
+    const firstLine = description.split("\n")[0].trim();
+    const title = `[bug] ${firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine}`;
+    const bodyFor = /* @__PURE__ */ __name((desc2) => {
+      const parts = [`**Describe the bug**
+
+${desc2}`];
+      if (discord || email) {
+        const contact = [];
+        if (discord) contact.push(`- Discord: ${discord}`);
+        if (email) contact.push(`- Email: ${email}`);
+        parts.push(`**Contact**
+
+${contact.join("\n")}`);
+      }
+      parts.push(`**System report**
+
+\`\`\`
+${report}
+\`\`\``);
+      parts.push("_Screenshots: paste or drag images directly into this text box._");
+      return parts.join("\n\n");
+    }, "bodyFor");
+    const urlFor = /* @__PURE__ */ __name((desc2) => `${repo}/issues/new?${new URLSearchParams({ title, body: bodyFor(desc2) })}`, "urlFor");
+    let desc = description;
+    let url = urlFor(desc);
+    while (url.length > MAX_URL_LENGTH && desc.length > 200) {
+      desc = `${desc.slice(0, Math.max(200, desc.length - 500)).trimEnd()}
+
+[description truncated \u2014 URL length limit]`;
+      url = urlFor(desc);
+    }
+    return url;
+  }
+  __name(buildIssueUrl, "buildIssueUrl");
+  function openFeedbackDialog({ host, opener, pluginName = "", pluginVersion = "", repository = "", disabled = false, data } = {}) {
+    const panelHost = host || /** @type {HTMLElement | null} */
+    (opener ? opener.closest(".tps-panel") : null);
+    if (!panelHost || !repository) return;
+    if (panelHost.querySelector(".tps-feedback-overlay")) return;
+    const repoLabel = repository.replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/\/+$/, "");
+    const reportPromise = collectSystemReport({ pluginName, pluginVersion, disabled, data });
+    const discordInput = el("input", { class: "tps-feedback-input", type: "text", placeholder: "e.g. akaready", autocomplete: "off", spellcheck: "false" });
+    const emailInput = el("input", { class: "tps-feedback-input", type: "email", placeholder: "e.g. you@example.com", autocomplete: "off", spellcheck: "false" });
+    const descInput = el("textarea", { class: "tps-feedback-textarea", rows: "5", placeholder: "What happened? What did you expect instead?" });
+    const reportPre = el("pre", { class: "tps-feedback-report" }, "Collecting\u2026");
+    reportPromise.then((text) => {
+      reportPre.textContent = text;
+    }).catch(() => {
+      reportPre.textContent = "Report unavailable.";
+    });
+    const fieldRow = /* @__PURE__ */ __name((label, field, extraClass) => el(
+      "label",
+      { class: `tps-feedback-field${extraClass ? ` ${extraClass}` : ""}` },
+      el("span", { class: "tps-feedback-label" }, label),
+      field
+    ), "fieldRow");
+    const prevOverflow = panelHost.style.overflow;
+    const close = /* @__PURE__ */ __name(() => {
+      overlay.remove();
+      panelHost.style.overflow = prevOverflow;
+      try {
+        opener?.focus();
+      } catch {
+      }
+    }, "close");
+    const submit = /* @__PURE__ */ __name(async () => {
+      const description = descInput.value.trim();
+      if (!description) {
+        descInput.setAttribute("aria-invalid", "true");
+        descInput.focus();
+        return;
+      }
+      let report = "";
+      try {
+        report = await reportPromise;
+      } catch {
+      }
+      const url = buildIssueUrl({
+        repository,
+        description,
+        discord: discordInput.value.trim(),
+        email: emailInput.value.trim(),
+        report
+      });
+      window.open(url, "_blank", "noopener");
+      close();
+    }, "submit");
+    const card = el(
+      "div",
+      { class: "tps-feedback-card", role: "dialog", "aria-modal": "true", "aria-label": `Report a bug in ${pluginName}` },
+      el(
+        "div",
+        { class: "tps-feedback-head" },
+        el("h2", { class: "tps-feedback-title" }, "Report a bug"),
+        el(
+          "button",
+          { type: "button", class: "tps-feedback-close", "aria-label": "Close", onClick: close },
+          el("i", { class: "ti ti-x", "aria-hidden": "true" })
+        )
+      ),
+      el(
+        "p",
+        { class: "tps-feedback-hint" },
+        `Opens a prefilled GitHub issue on ${repoLabel}.`,
+        el("br"),
+        "Please paste screenshots into the GitHub form after it opens."
+      ),
+      fieldRow("Discord username (optional)", discordInput),
+      fieldRow("Email (optional)", emailInput),
+      fieldRow("What happened?", descInput, "tps-feedback-field--grow"),
+      el(
+        "details",
+        { class: "tps-feedback-details" },
+        el("summary", { class: "tps-feedback-summary" }, "System report (included with the issue)"),
+        reportPre
+      ),
+      el(
+        "div",
+        { class: "tps-feedback-actions" },
+        el("button", { type: "button", class: "tps-button tps-button--ghost", onClick: close }, "Cancel"),
+        el("button", { type: "button", class: "tps-button tps-button--primary", onClick: submit }, "Open GitHub issue")
+      )
+    );
+    const overlay = el("div", { class: "tps-feedback-overlay" }, card);
+    overlay.addEventListener("mousedown", (e) => {
+      if (e.target === overlay) close();
+    });
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    });
+    descInput.addEventListener("input", () => descInput.removeAttribute("aria-invalid"));
+    panelHost.style.overflow = "hidden";
+    overlay.style.top = `${panelHost.scrollTop}px`;
+    overlay.style.height = `${panelHost.clientHeight}px`;
+    panelHost.appendChild(overlay);
+    descInput.focus();
+  }
+  __name(openFeedbackDialog, "openFeedbackDialog");
+
   // ../../shared/settings-ui/helpers.js
   var PANEL_CSS = tokens_default + "\n" + components_default + "\n" + color_field_default;
   function h(tag, props, ...children) {
-    const el = document.createElement(tag);
+    const el2 = document.createElement(tag);
     const dom = (
       /** @type {any} */
-      el
+      el2
     );
     if (props) {
       for (const k in props) {
         const v = props[k];
         if (v == null || v === false) continue;
         if (k === "class" || k === "className") {
-          el.className = v;
+          el2.className = v;
         } else if (k === "style" && typeof v === "object") {
-          Object.assign(el.style, v);
+          Object.assign(el2.style, v);
         } else if (k === "dataset" && typeof v === "object") {
-          for (const dk in v) el.dataset[dk] = v[dk];
+          for (const dk in v) el2.dataset[dk] = v[dk];
         } else if (k.startsWith("on") && typeof v === "function") {
-          el.addEventListener(k.slice(2).toLowerCase(), v);
+          el2.addEventListener(k.slice(2).toLowerCase(), v);
         } else if (k in dom && typeof dom[k] !== "function") {
           try {
             dom[k] = v;
           } catch {
-            el.setAttribute(k, v);
+            el2.setAttribute(k, v);
           }
         } else {
-          el.setAttribute(k, v === true ? "" : String(v));
+          el2.setAttribute(k, v === true ? "" : String(v));
         }
       }
     }
-    appendChildren(el, children);
-    return el;
+    appendChildren(el2, children);
+    return el2;
   }
   __name(h, "h");
   function appendChildren(parent, children) {
@@ -1433,10 +2034,19 @@ var plugins = (() => {
     author = "@akaready",
     homepage = "https://akaready.com",
     repository = "https://github.com/akaready",
-    coffee = "https://buymeacoffee.com/akaready"
+    coffee = "https://buymeacoffee.com/akaready",
+    killSwitch = null,
+    feedback = null
   }) {
     const iconClass = icon ? icon.startsWith("ti-") ? icon : `ti-${icon}` : "";
     const helperLines = normalizeHelperLines(helper);
+    const fb = feedback ? {
+      pluginName: (feedback === true ? "" : feedback.pluginName) || heading,
+      pluginVersion: (feedback === true ? "" : feedback.pluginVersion) || version,
+      repository: (feedback === true ? "" : feedback.repository) || repository,
+      disabled: (feedback === true ? void 0 : feedback.disabled) ?? (killSwitch ? !killSwitch.on : false),
+      data: feedback === true ? void 0 : feedback.data
+    } : null;
     const children = [
       iconClass ? h(
         "div",
@@ -1481,12 +2091,78 @@ var plugins = (() => {
           { class: "tps-plugin-header-link-group" },
           h("span", { class: "tps-plugin-header-icon tps-plugin-header-iconify tps-plugin-header-iconify-github", "aria-hidden": "true" }),
           h("a", { class: "tps-plugin-header-link tps-plugin-header-link--muted tps-plugin-header-version", href: repository, target: "_blank", rel: "noopener noreferrer" }, `v${version}`)
+        ) : null,
+        fb || killSwitch ? h(
+          "span",
+          { class: "tps-plugin-header-controls" },
+          fb ? renderFeedbackButton(fb) : null,
+          killSwitch ? renderKillSwitch(killSwitch) : null
         ) : null
-      )
+      ),
+      // Always rendered with a kill switch; CSS shows it only while the pill is
+      // off, so it appears instantly on the optimistic flip with no re-render.
+      killSwitch ? h(
+        "p",
+        { class: "tps-plugin-header-off-note" },
+        "Plugin is off \u2014 settings stay editable and your changes apply when you switch it back on."
+      ) : null
     ];
     return h("div", { class: "tps-plugin-header" }, ...children);
   }
   __name(pluginHeader, "pluginHeader");
+  function renderFeedbackButton(fb) {
+    return h("button", {
+      type: "button",
+      class: "tps-plugin-header-bug",
+      title: "Report a bug",
+      "aria-label": "Report a bug",
+      onClick: /* @__PURE__ */ __name((e) => {
+        const btn = (
+          /** @type {HTMLElement} */
+          e.currentTarget
+        );
+        openFeedbackDialog({
+          host: (
+            /** @type {HTMLElement | null} */
+            btn.closest(".tps-panel")
+          ),
+          opener: btn,
+          ...fb
+        });
+      }, "onClick")
+    }, h("i", { class: "ti ti-bug", "aria-hidden": "true" }));
+  }
+  __name(renderFeedbackButton, "renderFeedbackButton");
+  function renderKillSwitch(killSwitch) {
+    const sw = h("button", {
+      type: "button",
+      class: "tps-switch",
+      role: "switch",
+      "aria-checked": String(!!killSwitch.on),
+      "aria-label": killSwitch.label || "Plugin enabled",
+      title: killSwitch.on ? "Plugin enabled \u2014 click to disable all of its effects" : "Plugin disabled \u2014 click to re-enable"
+    }, h("span", { class: "tps-switch-knob" }));
+    const unlock = /* @__PURE__ */ __name(() => {
+      sw.removeAttribute("data-busy");
+      sw.disabled = false;
+    }, "unlock");
+    sw.addEventListener("click", () => {
+      if (sw.disabled) return;
+      const nextOn = sw.getAttribute("aria-checked") !== "true";
+      sw.setAttribute("aria-checked", String(nextOn));
+      sw.setAttribute("data-busy", "");
+      sw.disabled = true;
+      setTimeout(unlock, 700);
+      try {
+        killSwitch.onToggle(nextOn);
+      } catch {
+        unlock();
+        sw.setAttribute("aria-checked", String(!nextOn));
+      }
+    });
+    return sw;
+  }
+  __name(renderKillSwitch, "renderKillSwitch");
   function normalizeHelperLines(helper) {
     if (!helper) return [];
     if (typeof helper === "string") {
@@ -1532,7 +2208,7 @@ var plugins = (() => {
     return wrap;
   }
   __name(renderPluginHeaderHelper, "renderPluginHeaderHelper");
-  function pluginHeaderFromConfig(conf, { version, helper, helperOpen, helperDefaultOpen, onHelperToggle } = {}) {
+  function pluginHeaderFromConfig(conf, { version, helper, helperOpen, helperDefaultOpen, onHelperToggle, killSwitch, feedback } = {}) {
     const resolvedHelper = helper ?? conf.instructions;
     return pluginHeader({
       title: conf.name || "",
@@ -1546,7 +2222,9 @@ var plugins = (() => {
       author: conf.author,
       homepage: conf.homepage,
       repository: conf.repository,
-      coffee: conf.coffee
+      coffee: conf.coffee,
+      killSwitch,
+      feedback
     });
   }
   __name(pluginHeaderFromConfig, "pluginHeaderFromConfig");
@@ -1555,7 +2233,10 @@ var plugins = (() => {
   function readPluginVersion(conf, fallback = "0.0.1") {
     if (!conf || typeof conf !== "object") return fallback;
     if (typeof conf.version === "string" && conf.version) return conf.version;
-    const custom = conf.custom;
+    const custom = (
+      /** @type {Record<string, unknown> | undefined} */
+      conf.custom
+    );
     if (custom && typeof custom === "object" && typeof custom.pluginVersion === "string" && custom.pluginVersion) {
       return custom.pluginVersion;
     }
@@ -1576,11 +2257,33 @@ var plugins = (() => {
     };
   }
   __name(configWithPluginVersion, "configWithPluginVersion");
+  async function resolveConfigApi(plugin) {
+    if (!plugin) return null;
+    if (typeof plugin.saveConfiguration === "function") return plugin;
+    try {
+      const guid = typeof plugin.getGuid === "function" ? plugin.getGuid() : null;
+      const data = plugin.data;
+      if (guid && data && typeof data.getPluginByGuid === "function") {
+        const byGuid = data.getPluginByGuid(guid);
+        if (byGuid && typeof byGuid.saveConfiguration === "function") return byGuid;
+      }
+      if (data && typeof data.getAllGlobalPlugins === "function") {
+        const all = await data.getAllGlobalPlugins();
+        const name = plugin.getConfiguration?.()?.name;
+        const found = all.find((p) => p && typeof p.getGuid === "function" && p.getGuid() === guid) || (name ? all.find((p) => p && typeof p.getName === "function" && p.getName() === name) : null);
+        if (found && typeof found.saveConfiguration === "function") return found;
+      }
+    } catch {
+    }
+    return null;
+  }
+  __name(resolveConfigApi, "resolveConfigApi");
   async function syncPluginVersionOnLoad(plugin, pluginVersion, customPatch = {}) {
-    if (!plugin || typeof plugin.saveConfiguration !== "function") return;
+    const api = await resolveConfigApi(plugin);
+    if (!api) return;
     let conf = {};
     try {
-      conf = plugin.getConfiguration?.() || {};
+      conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
     } catch {
       return;
     }
@@ -1589,11 +2292,95 @@ var plugins = (() => {
     conf.custom, ...customPatch } : { ...customPatch };
     if (readPluginVersion(conf, "") === pluginVersion) return;
     try {
-      await plugin.saveConfiguration(configWithPluginVersion(conf, custom, pluginVersion));
+      await api.saveConfiguration(configWithPluginVersion(conf, custom, pluginVersion));
     } catch {
     }
   }
   __name(syncPluginVersionOnLoad, "syncPluginVersionOnLoad");
+
+  // ../../shared/plugin-kill-switch.js
+  var MARKER_SYNC_HORIZON_MS = 9e4;
+  function isPluginDisabled(conf) {
+    if (!conf || typeof conf !== "object") return false;
+    const custom = conf.custom;
+    return !!(custom && typeof custom === "object" && /** @type {Record<string, unknown>} */
+    custom.pluginDisabled === true);
+  }
+  __name(isPluginDisabled, "isPluginDisabled");
+  function markerKey(plugin) {
+    let ws = "default";
+    try {
+      ws = plugin.getWorkspaceGuid?.() || "default";
+    } catch {
+    }
+    let name = "plugin";
+    try {
+      name = plugin.getConfiguration?.()?.name || "plugin";
+    } catch {
+    }
+    return `tps-kill-switch/${ws}/${name}`;
+  }
+  __name(markerKey, "markerKey");
+  function writeKillSwitchMarker(plugin, disabled) {
+    try {
+      localStorage.setItem(markerKey(plugin), JSON.stringify({ disabled, ts: Date.now() }));
+    } catch {
+    }
+  }
+  __name(writeKillSwitchMarker, "writeKillSwitchMarker");
+  function clearKillSwitchMarker(plugin) {
+    try {
+      localStorage.removeItem(markerKey(plugin));
+    } catch {
+    }
+  }
+  __name(clearKillSwitchMarker, "clearKillSwitchMarker");
+  function readKillSwitch(plugin) {
+    let conf = {};
+    try {
+      conf = plugin.getConfiguration?.() || {};
+    } catch {
+    }
+    const confDisabled = isPluginDisabled(conf);
+    try {
+      const raw = localStorage.getItem(markerKey(plugin));
+      if (raw) {
+        const marker = JSON.parse(raw);
+        if (marker && typeof marker.disabled === "boolean") {
+          if (marker.disabled === confDisabled) {
+            clearKillSwitchMarker(plugin);
+            return confDisabled;
+          }
+          if (Date.now() - (Number(marker.ts) || 0) < MARKER_SYNC_HORIZON_MS) {
+            return marker.disabled;
+          }
+          clearKillSwitchMarker(plugin);
+        }
+      }
+    } catch {
+    }
+    return confDisabled;
+  }
+  __name(readKillSwitch, "readKillSwitch");
+  async function setPluginDisabled(plugin, disabled, pluginVersion, customPatch = {}) {
+    const api = await resolveConfigApi(plugin);
+    if (!api) return;
+    let conf = {};
+    try {
+      conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
+    } catch {
+      return;
+    }
+    if (typeof conf.name !== "string" || !conf.name.trim()) return;
+    if (readKillSwitch(plugin) === disabled && isPluginDisabled(conf) === disabled) return;
+    writeKillSwitchMarker(plugin, disabled);
+    try {
+      await api.saveConfiguration(configWithPluginVersion(conf, { ...customPatch, pluginDisabled: disabled }, pluginVersion));
+    } catch {
+      clearKillSwitchMarker(plugin);
+    }
+  }
+  __name(setPluginDisabled, "setPluginDisabled");
 
   // ../../shared/settings-ui/tailwind-palette.js
   var TW_SHADES = Object.freeze([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);
@@ -1658,7 +2445,7 @@ var plugins = (() => {
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.0.10";
+  var PLUGIN_VERSION = "1.1.2";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -1997,6 +2784,7 @@ var plugins = (() => {
       pingInstall("collection-icons");
       pingActive("collection-icons");
       void syncPluginVersionOnLoad(this, PLUGIN_VERSION);
+      this._disabled = readKillSwitch(this);
       try {
         this._cancelDeferredCleanup();
         this._settings = this._loadSettings();
@@ -2006,9 +2794,7 @@ var plugins = (() => {
         void this._refreshCollectionColorsFromConfig();
         this.ui.injectCSS(PANEL_CSS);
         this._injectStaticCSS();
-        this._refreshPanelAttributes(true);
         this._watchAppearance();
-        this._watchCollectionColors();
         this.ui.registerCustomPanelType(PANEL_TYPE, (panel) => {
           try {
             panel.setTitle("Configure Collection Icons");
@@ -2022,9 +2808,33 @@ var plugins = (() => {
           icon: "link",
           onSelected: /* @__PURE__ */ __name(() => this._openSettingsPanel(), "onSelected")
         });
+        this._handlerIds.push(this.events.on("panel.closed", () => this._flushConfigSave()));
+        this._pageLifecycleListener = () => this._flushConfigSave();
+        this._visibilityListener = () => {
+          if (document.visibilityState === "hidden") this._flushConfigSave();
+        };
+        try {
+          window.addEventListener("pagehide", this._pageLifecycleListener);
+        } catch {
+        }
+        try {
+          document.addEventListener("visibilitychange", this._visibilityListener);
+        } catch {
+        }
+        this._healStructuralStamps();
+        try {
+          const staleRoot = document.querySelector(".plg-collection-icons-panel");
+          if (staleRoot && staleRoot.parentElement) {
+            this._panelEl = staleRoot.parentElement;
+            this._renderPanel();
+          }
+        } catch {
+        }
+        if (this._disabled) return;
+        this._refreshPanelAttributes(true);
+        this._watchCollectionColors();
         this._rebuildPersistentColorRules();
         this._rebuildPersistentIconRules();
-        this._healStructuralStamps();
         this._attachEditorObserver();
         try {
           if (document.fonts && document.fonts.ready) {
@@ -2047,7 +2857,6 @@ var plugins = (() => {
         this._handlerIds.push(this.events.on("record.updated", () => this._scheduleDecorate(this._observedRoot || document.body)));
         this._handlerIds.push(this.events.on("global-plugin.updated", () => void this._refreshCollectionColorsFromConfig()));
         this._handlerIds.push(this.events.on("reload", () => this._refreshAndRedecorate()));
-        this._handlerIds.push(this.events.on("panel.closed", () => this._flushConfigSave()));
         this._storageListener = (e) => {
           if (!e.key) return;
           if (e.key.startsWith("collection-colors/") && e.key.endsWith("/colors")) {
@@ -2056,18 +2865,6 @@ var plugins = (() => {
           }
         };
         window.addEventListener("storage", this._storageListener);
-        this._pageLifecycleListener = () => this._flushConfigSave();
-        this._visibilityListener = () => {
-          if (document.visibilityState === "hidden") this._flushConfigSave();
-        };
-        try {
-          window.addEventListener("pagehide", this._pageLifecycleListener);
-        } catch {
-        }
-        try {
-          document.addEventListener("visibilitychange", this._visibilityListener);
-        } catch {
-        }
         this._navClickListener = (e) => this._onRefClick(e);
         try {
           document.addEventListener("click", this._navClickListener, true);
@@ -2228,38 +3025,38 @@ var plugins = (() => {
       try {
         document.querySelectorAll(
           `.line-div[${APPLIED_ATTR}], .listitem[${APPLIED_ATTR}], .listview-items[${APPLIED_ATTR}], .listitem-indentline[${GUID_ATTR}]`
-        ).forEach((el) => {
-          if (!(el instanceof HTMLElement)) return;
-          el.removeAttribute(APPLIED_ATTR);
-          el.removeAttribute(GUID_ATTR);
-          el.removeAttribute(COLORED_ATTR);
-          el.removeAttribute(ICON_ATTR);
-          el.style.removeProperty(COLOR_VAR);
+        ).forEach((el2) => {
+          if (!(el2 instanceof HTMLElement)) return;
+          el2.removeAttribute(APPLIED_ATTR);
+          el2.removeAttribute(GUID_ATTR);
+          el2.removeAttribute(COLORED_ATTR);
+          el2.removeAttribute(ICON_ATTR);
+          el2.style.removeProperty(COLOR_VAR);
         });
       } catch {
       }
     }
     _cleanupRuntimeArtifacts() {
       try {
-        document.querySelectorAll(`[${APPLIED_ATTR}]`).forEach((el) => {
-          el.removeAttribute(APPLIED_ATTR);
-          el.removeAttribute(ICON_ATTR);
-          el.removeAttribute(GUID_ATTR);
-          el.removeAttribute(COLORED_ATTR);
-          el.style.removeProperty(COLOR_VAR);
+        document.querySelectorAll(`[${APPLIED_ATTR}]`).forEach((el2) => {
+          el2.removeAttribute(APPLIED_ATTR);
+          el2.removeAttribute(ICON_ATTR);
+          el2.removeAttribute(GUID_ATTR);
+          el2.removeAttribute(COLORED_ATTR);
+          el2.style.removeProperty(COLOR_VAR);
         });
       } catch {
       }
       try {
-        document.querySelectorAll(`.lineitem-lineref[${ICON_ATTR}], .lineitem-lineref[${GUID_ATTR}], .lineitem-lineref[${COLORED_ATTR}]`).forEach((el) => {
-          if (!(el instanceof HTMLElement)) return;
-          el.removeAttribute(ICON_ATTR);
-          el.removeAttribute(GUID_ATTR);
-          el.removeAttribute(COLORED_ATTR);
-          el.style.removeProperty(COLOR_VAR);
-          el.style.removeProperty("display");
-          el.style.removeProperty("opacity");
-          el.style.removeProperty("visibility");
+        document.querySelectorAll(`.lineitem-lineref[${ICON_ATTR}], .lineitem-lineref[${GUID_ATTR}], .lineitem-lineref[${COLORED_ATTR}]`).forEach((el2) => {
+          if (!(el2 instanceof HTMLElement)) return;
+          el2.removeAttribute(ICON_ATTR);
+          el2.removeAttribute(GUID_ATTR);
+          el2.removeAttribute(COLORED_ATTR);
+          el2.style.removeProperty(COLOR_VAR);
+          el2.style.removeProperty("display");
+          el2.style.removeProperty("opacity");
+          el2.style.removeProperty("visibility");
         });
       } catch {
       }
@@ -2398,10 +3195,13 @@ var plugins = (() => {
           this._configSaveDirty = false;
           return;
         }
-        await plugin.saveConfiguration(configWithPluginVersion(conf, {
-          schemaVersion: 1,
-          settings: nextSettings
-        }, PLUGIN_VERSION));
+        await plugin.saveConfiguration(
+          /** @type {any} */
+          configWithPluginVersion(conf, {
+            schemaVersion: 1,
+            settings: nextSettings
+          }, PLUGIN_VERSION)
+        );
         this._configSaveDirty = false;
       } catch (err) {
         if (!this._isUnloading) this._scheduleConfigSave(1500);
@@ -2642,18 +3442,18 @@ var plugins = (() => {
         return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       }, "lum");
       const surfaces = [document.querySelector(".sidebar"), document.body, document.documentElement];
-      for (const el of surfaces) {
-        if (!el) continue;
+      for (const el2 of surfaces) {
+        if (!el2) continue;
         try {
-          const bg = lum(getComputedStyle(el).backgroundColor);
+          const bg = lum(getComputedStyle(el2).backgroundColor);
           if (bg !== null) return bg < 0.5;
         } catch {
         }
       }
-      for (const el of [document.body, document.documentElement]) {
-        if (!el) continue;
+      for (const el2 of [document.body, document.documentElement]) {
+        if (!el2) continue;
         try {
-          const tx = lum(getComputedStyle(el).color);
+          const tx = lum(getComputedStyle(el2).color);
           if (tx !== null) return tx > 0.5;
         } catch {
         }
@@ -2667,12 +3467,12 @@ var plugins = (() => {
     /** Re-tint chips/underlines when the user switches light/dark so `twflip:` colors flip. */
     _watchAppearance() {
       this._lastDark = this._isDarkAppearance();
-      this._refreshThemeBg(true);
+      this._refreshThemeBg();
       const check = /* @__PURE__ */ __name(() => {
         const dark = this._isDarkAppearance();
         if (dark === this._lastDark) return;
         this._lastDark = dark;
-        this._refreshThemeBg(true);
+        this._refreshThemeBg();
         this._rebuildPersistentColorRules();
         this._scheduleDecorate(this._observedRoot || document.body);
       }, "check");
@@ -2766,7 +3566,11 @@ var plugins = (() => {
      * @returns {boolean}
      */
     _refRelatedMutationNode(node) {
-      if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+      if (node.nodeType === Node.TEXT_NODE) {
+        const parent = node.parentElement;
+        if (!parent) return false;
+        node = parent;
+      }
       if (!(node instanceof Element)) return false;
       if (node.classList.contains("lineitem-hashtag") || node.classList.contains("lineitem-hashtag-input")) return false;
       if (node.matches(".lineitem-ref, .lineitem-ref-title, .lineitem-lineref, [data-guid]")) return true;
@@ -2834,6 +3638,7 @@ var plugins = (() => {
     }
     /** @param {ParentNode} [root] */
     _decorateNow(root = document.body) {
+      if (this._disabled) return;
       try {
         this._decorateAll(root);
       } catch (err) {
@@ -2862,6 +3667,7 @@ var plugins = (() => {
     /** Kept for backwards-compat with code paths that called the old debounced API. */
     /** @param {ParentNode} [root] */
     _scheduleDecorate(root = document.body) {
+      if (this._disabled) return;
       if (!root) return;
       if (root === document.body || !this._pendingDecorateRoot) {
         this._pendingDecorateRoot = root;
@@ -2926,6 +3732,7 @@ var plugins = (() => {
      *     pass runs same-frame, so markers exist before the user can hover anything.
      */
     _rebuildPersistentColorRules() {
+      if (this._disabled) return;
       const old = document.getElementById(COLOR_RULES_STYLE_ID);
       if (old) old.remove();
       this._colorRuleGuids.clear();
@@ -3189,17 +3996,17 @@ var plugins = (() => {
       const iconsNeeded = /* @__PURE__ */ new Set();
       let skippedHasInner = 0;
       let skippedStructural = 0;
-      for (const el of candidates) {
-        if (!(el instanceof HTMLElement)) continue;
-        if (el.classList.contains("sidebar-item") || el.closest(".sidebar")) continue;
-        if (el.classList.contains("lineitem-hashtag") || el.classList.contains("lineitem-hashtag-input")) continue;
-        if (el.closest(".tps-panel, .CodeMirror, .cm-editor, .plugin-code-editor")) continue;
-        if (el.classList.contains("listitem-indentline") || el.classList.contains("listitem") || el.classList.contains("line-div")) continue;
-        if (el.querySelector("[data-guid]")) {
+      for (const el2 of candidates) {
+        if (!(el2 instanceof HTMLElement)) continue;
+        if (el2.classList.contains("sidebar-item") || el2.closest(".sidebar")) continue;
+        if (el2.classList.contains("lineitem-hashtag") || el2.classList.contains("lineitem-hashtag-input")) continue;
+        if (el2.closest(".tps-panel, .CodeMirror, .cm-editor, .plugin-code-editor")) continue;
+        if (el2.classList.contains("listitem-indentline") || el2.classList.contains("listitem") || el2.classList.contains("line-div")) continue;
+        if (el2.querySelector("[data-guid]")) {
           skippedHasInner++;
           continue;
         }
-        const guid = el.getAttribute("data-guid");
+        const guid = el2.getAttribute("data-guid");
         if (!guid) continue;
         if (this._isStructuralGuid(guid, activeGuid)) {
           skippedStructural++;
@@ -3207,16 +4014,16 @@ var plugins = (() => {
         }
         const icon = this._resolveIcon(guid);
         const color = this._resolveColor(guid);
-        const ref = this._refForLeaf(el);
-        const title = this._titleForRef(ref, el, guid);
-        const host = ref || title || el.parentElement;
+        const ref = this._refForLeaf(el2);
+        const title = this._titleForRef(ref, el2, guid);
+        const host = ref || title || el2.parentElement;
         if (!host || host === root) continue;
         if (host.classList.contains("line-div") || host.classList.contains("listitem") || host.classList.contains("listview-items") || host.tagName === "LISTVIEW-EDITOR") continue;
-        const arrow = this._arrowForRef(ref, title, el);
+        const arrow = this._arrowForRef(ref, title, el2);
         if (seenParents.has(host)) continue;
         seenParents.add(host);
         if (icon) iconsNeeded.add(icon);
-        entries.push({ el, host, title, arrow, guid, icon, color });
+        entries.push({ el: el2, host, title, arrow, guid, icon, color });
       }
       this._ensureIconRules(iconsNeeded);
       let iconMapChanged = false;
@@ -3230,14 +4037,14 @@ var plugins = (() => {
       }
       if (iconMapChanged) this._persistIconMapSoon();
       const hideArrow = this._settings.hideTrailingAffordance || !this._settings.replaceTrailingArrowIcon && !this._settings.showTrailingArrow;
-      for (const { el, host, title, arrow, guid, icon, color } of entries) {
+      for (const { el: el2, host, title, arrow, guid, icon, color } of entries) {
         if (color) this._ensureGuidColorRules(guid, color);
         this._decorateRef(host, title, arrow, guid, icon, color);
-        const currentLeafColor = el.style.getPropertyValue(COLOR_VAR);
+        const currentLeafColor = el2.style.getPropertyValue(COLOR_VAR);
         if (color) {
-          if (currentLeafColor !== color) el.style.setProperty(COLOR_VAR, color);
+          if (currentLeafColor !== color) el2.style.setProperty(COLOR_VAR, color);
         } else if (currentLeafColor) {
-          el.style.removeProperty(COLOR_VAR);
+          el2.style.removeProperty(COLOR_VAR);
         }
         if (arrow) this._applyArrowVisibility(arrow, hideArrow);
       }
@@ -3247,8 +4054,8 @@ var plugins = (() => {
       }
     }
     /** @param {HTMLElement} el @returns {HTMLElement | null} */
-    _refForLeaf(el) {
-      const ref = el.closest(".lineitem-ref");
+    _refForLeaf(el2) {
+      const ref = el2.closest(".lineitem-ref");
       return ref instanceof HTMLElement ? ref : null;
     }
     /**
@@ -3309,14 +4116,14 @@ var plugins = (() => {
     }
     /** @param {ParentNode} root */
     _cleanupStaleDecorations(root) {
-      root.querySelectorAll(`[${APPLIED_ATTR}]`).forEach((el) => {
-        if (!(el instanceof HTMLElement)) return;
-        if (this._hasDecoratableDirectLeaf(el)) return;
-        el.removeAttribute(APPLIED_ATTR);
-        el.removeAttribute(ICON_ATTR);
-        el.removeAttribute(GUID_ATTR);
-        el.removeAttribute(COLORED_ATTR);
-        el.style.removeProperty(COLOR_VAR);
+      root.querySelectorAll(`[${APPLIED_ATTR}]`).forEach((el2) => {
+        if (!(el2 instanceof HTMLElement)) return;
+        if (this._hasDecoratableDirectLeaf(el2)) return;
+        el2.removeAttribute(APPLIED_ATTR);
+        el2.removeAttribute(ICON_ATTR);
+        el2.removeAttribute(GUID_ATTR);
+        el2.removeAttribute(COLORED_ATTR);
+        el2.style.removeProperty(COLOR_VAR);
       });
     }
     /** @param {ParentNode} root */
@@ -3385,20 +4192,20 @@ var plugins = (() => {
      * @param {string} guid
      * @param {string | null} color
      */
-    _markDecorated(el, guid, color) {
-      if (el.getAttribute(GUID_ATTR) !== guid) el.setAttribute(GUID_ATTR, guid);
+    _markDecorated(el2, guid, color) {
+      if (el2.getAttribute(GUID_ATTR) !== guid) el2.setAttribute(GUID_ATTR, guid);
       const desiredColor = color || "";
-      const currentColor = el.style.getPropertyValue(COLOR_VAR);
+      const currentColor = el2.style.getPropertyValue(COLOR_VAR);
       if (currentColor !== desiredColor) {
-        if (desiredColor) el.style.setProperty(COLOR_VAR, desiredColor);
-        else el.style.removeProperty(COLOR_VAR);
+        if (desiredColor) el2.style.setProperty(COLOR_VAR, desiredColor);
+        else el2.style.removeProperty(COLOR_VAR);
       }
       if (desiredColor) {
-        if (el.getAttribute(COLORED_ATTR) !== "1") el.setAttribute(COLORED_ATTR, "1");
+        if (el2.getAttribute(COLORED_ATTR) !== "1") el2.setAttribute(COLORED_ATTR, "1");
       } else {
-        el.removeAttribute(COLORED_ATTR);
+        el2.removeAttribute(COLORED_ATTR);
       }
-      if (el.getAttribute(APPLIED_ATTR) !== "1") el.setAttribute(APPLIED_ATTR, "1");
+      if (el2.getAttribute(APPLIED_ATTR) !== "1") el2.setAttribute(APPLIED_ATTR, "1");
     }
     /** @param {HTMLElement} arrow @param {boolean} hideArrow */
     _applyArrowVisibility(arrow, hideArrow) {
@@ -3573,6 +4380,7 @@ var plugins = (() => {
       ].map((selector) => `${selector}${suffix}`).join(",");
     }
     /** Outer ref wrapper — strip native hover/underline paint; chip lives on the title only. */
+    /** @param {string} escapedGuid */
     _chipShellSelectors(escapedGuid) {
       return [
         `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref.clickable[data-guid="${escapedGuid}"]`,
@@ -3584,6 +4392,7 @@ var plugins = (() => {
      * an absolute ::after on the wrapper spans the whole multi-line union box (empty
      * second-line gutters) or collapses to a sliver at line breaks.
      */
+    /** @param {string} escapedGuid */
     _chipPaintSelectors(escapedGuid) {
       return [
         `body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid="${escapedGuid}"]`,
@@ -3609,6 +4418,7 @@ var plugins = (() => {
     }
     /** Inject persistent icon rules for every persisted guid→icon pair (batched probe). */
     _rebuildPersistentIconRules() {
+      if (this._disabled) return;
       const entries = Object.entries(this._iconsByGuid);
       if (!entries.length) return;
       this._ensureIconRules(new Set(entries.map(([, icon]) => icon)));
@@ -3617,6 +4427,7 @@ var plugins = (() => {
     // ─── Mode attributes on observed root ─────────────────────────────────────
     /** @param {boolean} [forceThemeRefresh] */
     _refreshPanelAttributes(forceThemeRefresh = false) {
+      if (this._disabled) return;
       const body = document.body;
       if (!body) return;
       body.setAttribute(`data-${ROOT_CLASS}`, "1");
@@ -4318,9 +5129,9 @@ var plugins = (() => {
     _renderPanel() {
       if (!this._panelEl) return;
       this._refreshPanelAttributes();
-      const el = this._panelEl;
-      el.replaceChildren();
-      el.classList.add("tps-panel", `${ROOT_CLASS}-panel`);
+      const el2 = this._panelEl;
+      el2.replaceChildren();
+      el2.classList.add("tps-panel", `${ROOT_CLASS}-panel`);
       const h2 = /* @__PURE__ */ __name((tag, attrs = {}, ...kids) => {
         const n = document.createElement(tag);
         for (const [k, v] of Object.entries(attrs)) {
@@ -4334,7 +5145,7 @@ var plugins = (() => {
         }
         return n;
       }, "h");
-      this._repairAncestorAlignment(el);
+      this._repairAncestorAlignment(el2);
       const liveConf = typeof this.getConfiguration === "function" ? this.getConfiguration() || {} : {};
       const headerConf = {
         ...MANIFEST,
@@ -4346,10 +5157,25 @@ var plugins = (() => {
         helperOpen: this._headerHelperOpen,
         onHelperToggle: /* @__PURE__ */ __name((open) => {
           this._headerHelperOpen = open;
-        }, "onHelperToggle")
+        }, "onHelperToggle"),
+        killSwitch: {
+          on: !this._disabled,
+          onToggle: /* @__PURE__ */ __name((nextOn) => {
+            if (this._configSaveTimer) {
+              clearTimeout(this._configSaveTimer);
+              this._configSaveTimer = null;
+            }
+            this._configSaveDirty = false;
+            void setPluginDisabled(this, !nextOn, PLUGIN_VERSION, {
+              schemaVersion: 1,
+              settings: this._normalizeSettings(this._settings)
+            });
+          }, "onToggle")
+        },
+        feedback: { data: this.data }
       }));
-      el.append(headerRow);
-      const append = /* @__PURE__ */ __name((section) => el.appendChild(section), "append");
+      el2.append(headerRow);
+      const append = /* @__PURE__ */ __name((section) => el2.appendChild(section), "append");
       append(h2(
         "section",
         {},
@@ -4532,8 +5358,8 @@ var plugins = (() => {
      * @param {HTMLElement | null} el
      * @returns {HTMLElement | null}
      */
-    _scrollParent(el) {
-      let p = el ? el.parentElement : null;
+    _scrollParent(el2) {
+      let p = el2 ? el2.parentElement : null;
       for (let i = 0; i < 12 && p && p !== document.body; i++) {
         try {
           const cs = getComputedStyle(p);
@@ -4900,12 +5726,12 @@ var plugins = (() => {
      * left whenever the settings panel was visible — never do that again; this only cleans up.
      * @param {HTMLElement} el
      */
-    _repairAncestorAlignment(el) {
+    _repairAncestorAlignment(el2) {
       try {
-        el.style.removeProperty("text-align");
-        el.style.removeProperty("margin-left");
-        el.style.removeProperty("margin-right");
-        let p = el.parentElement;
+        el2.style.removeProperty("text-align");
+        el2.style.removeProperty("margin-left");
+        el2.style.removeProperty("margin-right");
+        let p = el2.parentElement;
         for (let i = 0; i < 10 && p && p !== document.body; i++) {
           for (const prop of ["text-align", "justify-content", "align-items", "justify-items"]) {
             p.style.removeProperty(prop);
