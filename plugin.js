@@ -1873,7 +1873,6 @@ ${report}
     (opener ? opener.closest(".tps-panel") : null);
     if (!panelHost || !repository) return;
     if (panelHost.querySelector(".tps-feedback-overlay")) return;
-    const repoLabel = repository.replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/\/+$/, "");
     const reportPromise = collectSystemReport({ pluginName, pluginVersion, disabled, data });
     const discordInput = el("input", { class: "tps-feedback-input", type: "text", placeholder: "e.g. akaready", autocomplete: "off", spellcheck: "false" });
     const emailInput = el("input", { class: "tps-feedback-input", type: "email", placeholder: "e.g. you@example.com", autocomplete: "off", spellcheck: "false" });
@@ -1934,12 +1933,13 @@ ${report}
           el("i", { class: "ti ti-x", "aria-hidden": "true" })
         )
       ),
+      // Fixed short copy — no variable repo name, so each line stays on one line.
       el(
         "p",
         { class: "tps-feedback-hint" },
-        `Opens a prefilled GitHub issue on ${repoLabel}.`,
+        "Opens a prefilled GitHub issue on the repo.",
         el("br"),
-        "Please paste screenshots into the GitHub form after it opens."
+        "Please add relevant screenshots to the GitHub issue."
       ),
       fieldRow("Discord username (optional)", discordInput),
       fieldRow("Email (optional)", emailInput),
@@ -2445,7 +2445,7 @@ ${report}
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.1.2";
+  var PLUGIN_VERSION = "1.1.3";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
