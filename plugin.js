@@ -1658,7 +1658,7 @@ var plugins = (() => {
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.0.9";
+  var PLUGIN_VERSION = "1.0.10";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -1874,7 +1874,7 @@ var plugins = (() => {
   function _fireTelemetry(path) {
     _loadGoatCounter().then(() => {
       try {
-        window.goatcounter.count({ path, title: "", event: false });
+        window.goatcounter?.count?.({ path, title: "", event: false });
       } catch (_) {
       }
     });
@@ -2024,6 +2024,7 @@ var plugins = (() => {
         });
         this._rebuildPersistentColorRules();
         this._rebuildPersistentIconRules();
+        this._healStructuralStamps();
         this._attachEditorObserver();
         try {
           if (document.fonts && document.fonts.ready) {
@@ -2086,7 +2087,8 @@ var plugins = (() => {
         if (target.closest(".lineitem-lineref")) return;
         const decorated = target.closest(`[${APPLIED_ATTR}]`);
         if (!decorated || !decorated.closest(".editor-panel")) return;
-        const ref = decorated.closest(".lineitem-ref") || decorated;
+        const ref = decorated.closest(".lineitem-ref");
+        if (!ref) return;
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed) return;
         const btn = ref.querySelector(".lineitem-lineref") || decorated.querySelector(".lineitem-lineref");
@@ -2213,6 +2215,28 @@ var plugins = (() => {
         }, 1500);
       } catch {
         this._cleanupRuntimeArtifacts();
+      }
+    }
+    /**
+     * One-time heal for structural stamps left behind by 1.0.8/1.0.9. Those builds could mark
+     * a row (.line-div/.listitem) — or, via a plain top-level row, the list container itself —
+     * through the host = el.parentElement fallback, and a marker on a container made
+     * _onRefClick hijack every click inside it. Strip the plugin's attributes from any
+     * container-shaped element that still carries them.
+     */
+    _healStructuralStamps() {
+      try {
+        document.querySelectorAll(
+          `.line-div[${APPLIED_ATTR}], .listitem[${APPLIED_ATTR}], .listview-items[${APPLIED_ATTR}], .listitem-indentline[${GUID_ATTR}]`
+        ).forEach((el) => {
+          if (!(el instanceof HTMLElement)) return;
+          el.removeAttribute(APPLIED_ATTR);
+          el.removeAttribute(GUID_ATTR);
+          el.removeAttribute(COLORED_ATTR);
+          el.removeAttribute(ICON_ATTR);
+          el.style.removeProperty(COLOR_VAR);
+        });
+      } catch {
       }
     }
     _cleanupRuntimeArtifacts() {
@@ -3170,6 +3194,7 @@ var plugins = (() => {
         if (el.classList.contains("sidebar-item") || el.closest(".sidebar")) continue;
         if (el.classList.contains("lineitem-hashtag") || el.classList.contains("lineitem-hashtag-input")) continue;
         if (el.closest(".tps-panel, .CodeMirror, .cm-editor, .plugin-code-editor")) continue;
+        if (el.classList.contains("listitem-indentline") || el.classList.contains("listitem") || el.classList.contains("line-div")) continue;
         if (el.querySelector("[data-guid]")) {
           skippedHasInner++;
           continue;
@@ -3186,6 +3211,7 @@ var plugins = (() => {
         const title = this._titleForRef(ref, el, guid);
         const host = ref || title || el.parentElement;
         if (!host || host === root) continue;
+        if (host.classList.contains("line-div") || host.classList.contains("listitem") || host.classList.contains("listview-items") || host.tagName === "LISTVIEW-EDITOR") continue;
         const arrow = this._arrowForRef(ref, title, el);
         if (seenParents.has(host)) continue;
         seenParents.add(host);
