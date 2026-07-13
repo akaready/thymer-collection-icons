@@ -1658,7 +1658,7 @@ var plugins = (() => {
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.0.8";
+  var PLUGIN_VERSION = "1.0.9";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -1681,6 +1681,7 @@ var plugins = (() => {
   var GUID_ATTR = "data-ci-guid";
   var COLORED_ATTR = "data-ci-colored";
   var COLOR_VAR = "--plg-ci-color";
+  var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var NEUTRAL_COLOR = "var(--text-muted, #8b8b8b)";
   var VISUAL_TREATMENTS = (
     /** @type {const} */
@@ -1934,6 +1935,8 @@ var plugins = (() => {
     _colorsRaw = null;
     /** @type {ReturnType<typeof setInterval> | null} */
     _colorsPoll = null;
+    /** @type {(() => void) | null} */
+    _colorsChangedListener = null;
     /** @type {MutationObserver | null} */
     _editorObserver = null;
     /** @type {ReturnType<typeof setTimeout> | null} */
@@ -2153,6 +2156,13 @@ var plugins = (() => {
       if (this._colorsPoll) {
         clearInterval(this._colorsPoll);
         this._colorsPoll = null;
+      }
+      if (this._colorsChangedListener) {
+        try {
+          window.removeEventListener(COLORS_CHANGED_EVENT, this._colorsChangedListener);
+        } catch {
+        }
+        this._colorsChangedListener = null;
       }
       if (this._appearanceRaf) {
         cancelAnimationFrame(this._appearanceRaf);
@@ -2459,15 +2469,27 @@ var plugins = (() => {
       this._scheduleDecorate(this._observedRoot || document.body);
     }
     /**
-     * Watch Collection Colors' localStorage cache for edits made in THIS tab.
+     * Watch Collection Colors for edits made in THIS tab.
      *
-     * The `storage` event only fires in OTHER tabs — never in the one that wrote the value — and
-     * Collection Colors runs in this same page, so its live edits are invisible to that listener.
-     * Collection Colors also defers saveConfiguration (and the global-plugin.updated event it
-     * emits) to panel close, so without this poll a cleared color stays on screen for as long as
-     * its panel is open. Compares the raw string, so an unchanged cache costs one getItem.
+     * Neither obvious signal works: the `storage` event never fires in the tab that wrote the
+     * value (and Collection Colors runs in this same page), and its synced saveConfiguration —
+     * with the global-plugin.updated event it emits — is deliberately deferred to panel close.
+     *
+     * Collection Colors >= 1.2.4 dispatches COLORS_CHANGED_EVENT on every edit, which is instant
+     * and free. The poll is the fallback for an older copy still installed alongside this one:
+     * the two plugins update independently, so we cannot simply assume the event exists. The
+     * first event that arrives proves the newer version is running and retires the poll for good.
      */
     _watchCollectionColors() {
+      this._colorsChangedListener = () => {
+        if (this._colorsPoll) {
+          clearInterval(this._colorsPoll);
+          this._colorsPoll = null;
+        }
+        const next = this._readCachedCollectionColors();
+        if (next) this._adoptCollectionColors(next);
+      };
+      window.addEventListener(COLORS_CHANGED_EVENT, this._colorsChangedListener);
       this._colorsPoll = setInterval(() => {
         try {
           const raw = localStorage.getItem(this._colorsKey());
