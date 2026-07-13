@@ -71,10 +71,14 @@ For each inline reference it:
 - writes CSS variables and mode attributes used by the stylesheet;
 - reads Collection Colors synced JSON/local cache when color tinting is enabled.
 
-Synced settings live in `plugin.json` under `custom.settings`. Local storage is
-kept as a workspace-scoped fast override/cache:
+Settings are per-device with explicit sync: a device follows the synced
+`custom.settings` in `plugin.json` until you edit here, at which point edits
+land device-local (`collection-icons/<workspaceGuid>/settings`). The scope pill
+in the panel header shows which mode the device is in; "Apply to all devices"
+pushes the device's settings to the synced config, and the discard control
+reverts to the synced values.
 
-- `collection-icons/<workspaceGuid>/settings`
+- `collection-icons/<workspaceGuid>/settings` — this device's local settings
 - `collection-colors/<workspaceGuid>/colors` is read only, if present
 
 Collection Colors' `custom.colors` JSON is preferred on clients where local

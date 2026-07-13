@@ -2411,7 +2411,7 @@ ${report}
     return wrap;
   }
   __name(renderPluginHeaderHelper, "renderPluginHeaderHelper");
-  function pluginHeaderFromConfig(conf, { version, helper, helperOpen, helperDefaultOpen, onHelperToggle, killSwitch, feedback } = {}) {
+  function pluginHeaderFromConfig(conf, { version, helper, helperOpen, helperDefaultOpen, onHelperToggle, killSwitch, feedback, scope } = {}) {
     const resolvedHelper = helper ?? conf.instructions;
     return pluginHeader({
       title: conf.name || "",
@@ -2427,7 +2427,8 @@ ${report}
       repository: conf.repository,
       coffee: conf.coffee,
       killSwitch,
-      feedback
+      feedback,
+      scope
     });
   }
   __name(pluginHeaderFromConfig, "pluginHeaderFromConfig");
@@ -2596,6 +2597,213 @@ ${report}
   }
   __name(setPluginDisabled, "setPluginDisabled");
 
+  // ../../shared/plugin-settings.js
+  function createSettingsStore(plugin, {
+    slug,
+    key = "settings",
+    version,
+    normalize = /* @__PURE__ */ __name((raw) => raw && typeof raw === "object" ? raw : {}, "normalize"),
+    scopeKey = null,
+    readSynced = null,
+    pickSynced = null
+  }) {
+    const readSyncedBlob = readSynced || ((custom) => custom?.[key]);
+    const pickSyncedSubset = pickSynced || ((s) => s);
+    let current = {};
+    let diverged = false;
+    let pushInFlight = false;
+    const workspaceGuid = /* @__PURE__ */ __name(() => {
+      try {
+        const guid = plugin.getWorkspaceGuid?.();
+        if (guid) return guid;
+      } catch {
+      }
+      return "default";
+    }, "workspaceGuid");
+    const storageKey = /* @__PURE__ */ __name(() => {
+      const scope = scopeKey ? `/${scopeKey()}` : "";
+      return `${slug}/${workspaceGuid()}${scope}/settings`;
+    }, "storageKey");
+    const readCustom = /* @__PURE__ */ __name(() => {
+      try {
+        const conf = plugin.getConfiguration?.();
+        const custom = conf && conf.custom;
+        return custom && typeof custom === "object" ? (
+          /** @type {Record<string, unknown>} */
+          custom
+        ) : {};
+      } catch {
+        return {};
+      }
+    }, "readCustom");
+    const readLocalRaw = /* @__PURE__ */ __name(() => {
+      try {
+        const raw = localStorage.getItem(storageKey());
+        if (raw === null) return null;
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch {
+        return null;
+      }
+    }, "readLocalRaw");
+    const normalizedStringify = /* @__PURE__ */ __name((raw) => JSON.stringify(normalize(raw)), "normalizedStringify");
+    const store = {
+      /** Read-only: never writes either store. */
+      load() {
+        const local = readLocalRaw();
+        if (local !== null) {
+          current = normalize(local);
+          diverged = true;
+        } else {
+          current = normalize(readSyncedBlob(readCustom()) || {});
+          diverged = false;
+        }
+        return { settings: current, diverged };
+      },
+      get() {
+        return current;
+      },
+      isDiverged() {
+        return diverged;
+      },
+      /**
+       * Every edit is device-local. First edit snapshots the FULL settings
+       * (inherited values of untouched keys survive). localStorage throwing
+       * (private mode) leaves the edit in memory for the session — still
+       * reported diverged so the pill/push UI works, and push still syncs.
+       */
+      update(patch) {
+        current = normalize({ ...current, ...patch });
+        if (normalizedStringify(readSyncedBlob(readCustom())) === JSON.stringify(current)) {
+          try {
+            localStorage.removeItem(storageKey());
+          } catch {
+          }
+          diverged = false;
+          return { settings: current, diverged };
+        }
+        diverged = true;
+        try {
+          localStorage.setItem(storageKey(), JSON.stringify(current));
+        } catch {
+        }
+        return { settings: current, diverged };
+      },
+      /**
+       * The explicit ↑ "Apply to all devices": ONE saveConfiguration (which
+       * reloads the plugin), then the local blob is cleared so this device
+       * goes back to following the synced config. Resolves true when the
+       * settings are known to be in synced config (pushed or already equal).
+       */
+      async pushToAll() {
+        if (pushInFlight) return false;
+        pushInFlight = true;
+        try {
+          const api = await resolveConfigApi(plugin);
+          if (!api || typeof api.saveConfiguration !== "function") return false;
+          let conf = {};
+          try {
+            conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
+          } catch {
+            return false;
+          }
+          if (typeof conf.name !== "string" || !conf.name.trim()) return false;
+          const custom = conf.custom && typeof conf.custom === "object" ? conf.custom : {};
+          const subset = pickSyncedSubset(normalize(current));
+          try {
+            localStorage.removeItem(storageKey());
+          } catch {
+          }
+          diverged = false;
+          try {
+            if (normalizedStringify(readSyncedBlob(
+              /** @type {any} */
+              custom
+            )) !== normalizedStringify(subset)) {
+              await api.saveConfiguration(configWithPluginVersion(conf, { [key]: subset }, version));
+            }
+          } catch (err) {
+            try {
+              localStorage.setItem(storageKey(), JSON.stringify(current));
+            } catch {
+            }
+            diverged = true;
+            throw err;
+          }
+          return true;
+        } catch {
+          return false;
+        } finally {
+          pushInFlight = false;
+        }
+      },
+      /** The ↺ "Discard device changes": drop local, re-adopt synced. */
+      discardLocal() {
+        try {
+          localStorage.removeItem(storageKey());
+        } catch {
+        }
+        current = normalize(readSyncedBlob(readCustom()) || {});
+        diverged = false;
+        return current;
+      },
+      /**
+       * For folding into `setPluginDisabled(plugin, off, version, customPatch)`
+       * so a kill-switch toggle carries staged device settings in the SAME
+       * save (one reload, no race — CLAUDE.md rule). Call markFlushed() after
+       * that save succeeds if the fold should count as a push.
+       */
+      pendingCustomPatch() {
+        return diverged ? { [key]: pickSyncedSubset(normalize(current)) } : {};
+      },
+      markFlushed() {
+        try {
+          localStorage.removeItem(storageKey());
+        } catch {
+        }
+        diverged = false;
+      },
+      /**
+       * Live-follow for non-diverged devices: when another device pushes,
+       * `global-plugin.updated` fires here; re-read the synced blob and, if
+       * it changed semantically, hand the fresh settings to the plugin's
+       * central apply (which each plugin already guards with its kill
+       * switch). Returns a detach function for onUnload.
+       */
+      attachLifecycle({ onRemoteChange } = {}) {
+        const handlerIds = [];
+        try {
+          const id = plugin.events?.on?.("global-plugin.updated", (event) => {
+            try {
+              if (diverged) return;
+              if (event?.source?.isLocal) return;
+              const guid = plugin.getGuid?.();
+              const eventGuid = event?.pluginGuid || event?.guid || event?.rootId || null;
+              if (eventGuid && guid && eventGuid !== guid) return;
+              const next = normalize(readSyncedBlob(readCustom()) || {});
+              if (JSON.stringify(next) === JSON.stringify(current)) return;
+              current = next;
+              onRemoteChange?.(current);
+            } catch {
+            }
+          });
+          if (id) handlerIds.push(id);
+        } catch {
+        }
+        return () => {
+          for (const id of handlerIds) {
+            try {
+              plugin.events?.off?.(id);
+            } catch {
+            }
+          }
+        };
+      }
+    };
+    return store;
+  }
+  __name(createSettingsStore, "createSettingsStore");
+
   // ../../shared/settings-ui/tailwind-palette.js
   var TW_SHADES = Object.freeze([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);
   var TAILWIND = Object.freeze({
@@ -2659,7 +2867,7 @@ ${report}
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.1.6";
+  var PLUGIN_VERSION = "1.2.0";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -2960,11 +3168,15 @@ ${report}
       /* @__PURE__ */ __name((() => {
       }), "_storageListener")
     );
-    /** @type {ReturnType<typeof setTimeout> | null} */
-    _configSaveTimer = null;
-    _configSaveInFlight = false;
-    _configSaveQueued = false;
-    _configSaveDirty = false;
+    /**
+     * Per-device settings store (shared model): device follows the synced
+     * config until edited here; edits are local until the explicit
+     * "Apply to all devices" push. Loads never write any store.
+     * @type {ReturnType<typeof createSettingsStore> | null}
+     */
+    _settingsStore = null;
+    /** @type {(() => void) | null} */
+    _detachSettingsLifecycle = null;
     _isUnloading = false;
     /** @type {ReturnType<typeof setTimeout> | null} */
     _colorRulesTimer = null;
@@ -2976,12 +3188,6 @@ ${report}
     /** @type {number | null} */
     _appearanceRaf = null;
     _lastDark = false;
-    /** @type {() => void} */
-    _pageLifecycleListener = /* @__PURE__ */ __name(() => {
-    }, "_pageLifecycleListener");
-    /** @type {() => void} */
-    _visibilityListener = /* @__PURE__ */ __name(() => {
-    }, "_visibilityListener");
     /** @type {(e: MouseEvent) => void} */
     _navClickListener = /* @__PURE__ */ __name(() => {
     }, "_navClickListener");
@@ -3001,7 +3207,14 @@ ${report}
       this._disabled = readKillSwitch(this);
       try {
         this._cancelDeferredCleanup();
-        this._settings = this._loadSettings();
+        this._settingsStore = createSettingsStore(this, {
+          slug: "collection-icons",
+          key: "settings",
+          version: PLUGIN_VERSION,
+          normalize: /* @__PURE__ */ __name((raw) => this._normalizeSettings(raw), "normalize")
+        });
+        this._settings = /** @type {Settings} */
+        this._settingsStore.load().settings;
         this._colorsByGuid = this._loadCollectionColors();
         this._recordToCollGuid = this._loadPersistedRecordMap();
         this._iconsByGuid = this._loadPersistedIconMap();
@@ -3022,24 +3235,19 @@ ${report}
           icon: "link",
           onSelected: /* @__PURE__ */ __name(() => this._openSettingsPanel(), "onSelected")
         });
-        this._handlerIds.push(this.events.on("panel.closed", () => this._flushConfigSave()));
-        this._pageLifecycleListener = () => this._flushConfigSave();
-        this._visibilityListener = () => {
-          if (document.visibilityState === "hidden") this._flushConfigSave();
-        };
-        try {
-          window.addEventListener("pagehide", this._pageLifecycleListener);
-        } catch {
-        }
-        try {
-          document.addEventListener("visibilitychange", this._visibilityListener);
-        } catch {
-        }
+        this._detachSettingsLifecycle = this._settingsStore.attachLifecycle({
+          onRemoteChange: /* @__PURE__ */ __name((settings) => {
+            this._settings = /** @type {Settings} */
+            settings;
+            this._applyAdoptedSettings();
+            this._withScrollPreserved(() => this._renderPanel());
+          }, "onRemoteChange")
+        });
         this._healStructuralStamps();
         try {
-          const staleRoot = document.querySelector(".plg-collection-icons-panel");
-          if (staleRoot && staleRoot.parentElement) {
-            this._panelEl = staleRoot.parentElement;
+          const staleRoot = document.querySelector(`.${ROOT_CLASS}-panel`);
+          if (staleRoot instanceof HTMLElement) {
+            this._panelEl = staleRoot;
             this._renderPanel();
           }
         } catch {
@@ -3124,11 +3332,11 @@ ${report}
       } catch {
       }
       this._handlerIds = [];
-      if (this._configSaveTimer) {
-        clearTimeout(this._configSaveTimer);
-        this._configSaveTimer = null;
+      try {
+        this._detachSettingsLifecycle?.();
+      } catch {
       }
-      this._flushConfigSave();
+      this._detachSettingsLifecycle = null;
       try {
         if (this._editorObserver) this._editorObserver.disconnect();
       } catch {
@@ -3183,14 +3391,6 @@ ${report}
       }
       try {
         window.removeEventListener("storage", this._storageListener);
-      } catch {
-      }
-      try {
-        window.removeEventListener("pagehide", this._pageLifecycleListener);
-      } catch {
-      }
-      try {
-        document.removeEventListener("visibilitychange", this._visibilityListener);
       } catch {
       }
       try {
@@ -3289,9 +3489,6 @@ ${report}
       }
     }
     // ─── Storage ──────────────────────────────────────────────────────────────
-    _settingsKey() {
-      return `collection-icons/${this.getWorkspaceGuid()}/settings`;
-    }
     _colorsKey() {
       return `collection-colors/${this.getWorkspaceGuid()}/colors`;
     }
@@ -3303,23 +3500,6 @@ ${report}
       } catch {
         return {};
       }
-    }
-    /** @returns {Record<string, any>} */
-    _customConfig() {
-      try {
-        const conf = this.getConfiguration && this.getConfiguration();
-        const custom = conf && conf.custom;
-        return custom && typeof custom === "object" ? custom : {};
-      } catch {
-        return {};
-      }
-    }
-    /** @returns {Settings} */
-    _loadSettings() {
-      const fromConfig = this._customConfig().settings || {};
-      const fromLocal = this._loadLocalObject(this._settingsKey());
-      const raw = { ...fromConfig, ...fromLocal };
-      return this._normalizeSettings(raw);
     }
     /** @param {any} raw @returns {Settings} */
     _normalizeSettings(raw) {
@@ -3351,91 +3531,74 @@ ${report}
         };
         return settings;
       } catch {
-        return { ...DEFAULT_SETTINGS };
-      }
-    }
-    _writeSettingsCache() {
-      try {
-        localStorage.setItem(this._settingsKey(), JSON.stringify(this._settings));
-      } catch {
+        return {
+          ...DEFAULT_SETTINGS,
+          iconVariation: { ...DEFAULT_SETTINGS.iconVariation },
+          textVariation: { ...DEFAULT_SETTINGS.textVariation },
+          outlineVariation: { ...DEFAULT_SETTINGS.outlineVariation }
+        };
       }
     }
     /**
-     * Interactive write path: localStorage immediately, mark synced-config dirty,
-     * BUT do NOT schedule saveConfiguration. Per SDK (types.d.ts), saveConfiguration
-     * forces a full plugin reload (which dumps the editor's scroll position and
-     * forces a redecorate cycle). The dirty flag is flushed by `_flushConfigSave`
-     * on panel.closed, pagehide, and visibility-hidden.
-     *
-     * @param {number} [_syncDelayMs] unused — retained for back-compat
+     * Interactive write path: every edit lands DEVICE-LOCAL via the shared store
+     * (the first edit snapshots the full settings; an edit that returns to the
+     * synced values auto-reconverges and drops the blob). The synced config is
+     * written ONLY by the explicit "Apply to all devices" push in the panel
+     * header — never here, so no edit path can trigger a saveConfiguration
+     * reload. Call sites mutate `this._settings` first, then call this.
      */
-    _saveSettings(_syncDelayMs) {
-      this._settings = this._normalizeSettings(this._settings);
-      this._writeSettingsCache();
-      this._configSaveDirty = true;
+    _saveSettings() {
+      if (!this._settingsStore) return;
+      this._settings = /** @type {Settings} */
+      this._settingsStore.update(this._settings).settings;
+      this._refreshScopePill();
     }
-    /** @param {number} [delayMs] */
-    _scheduleConfigSave(delayMs = 900) {
-      this._configSaveDirty = true;
-      if (this._configSaveTimer) clearTimeout(this._configSaveTimer);
-      this._configSaveTimer = setTimeout(() => {
-        this._configSaveTimer = null;
-        void this._saveCustomConfigNow();
-      }, delayMs);
+    /**
+     * Central re-apply after adopting a WHOLE settings object (scope-pill
+     * discard / remote push on a non-diverged device). Every call in here is
+     * `_disabled`-guarded internally, so adopting while killed updates state
+     * only — no styling leaks.
+     */
+    _applyAdoptedSettings() {
+      this._refreshPanelAttributes(true);
+      this._schedulePersistentColorRules(0);
+      this._scheduleDecorate(this._observedRoot || document.body);
     }
-    _flushConfigSave() {
-      if (this._configSaveTimer) {
-        clearTimeout(this._configSaveTimer);
-        this._configSaveTimer = null;
-      }
-      if (this._configSaveDirty) void this._saveCustomConfigNow();
+    /**
+     * Scope-cluster wiring for the header pill: push = one saveConfiguration
+     * (the reload's hot-reload heal re-renders the panel); discard = two-tap
+     * armed in the shared cluster, then re-adopt synced values here.
+     */
+    _scopeArgs() {
+      return {
+        diverged: !!this._settingsStore?.isDiverged(),
+        onPush: /* @__PURE__ */ __name(() => {
+          void this._settingsStore?.pushToAll().then((ok) => {
+            if (!ok) return;
+            try {
+              this.ui.addToaster({ title: "Collection Icons", message: "Settings applied to all devices", dismissible: true, autoDestroyTime: 3e3 });
+            } catch {
+            }
+            this._refreshScopePill();
+          });
+        }, "onPush"),
+        onDiscard: /* @__PURE__ */ __name(() => {
+          if (!this._settingsStore) return;
+          this._settings = /** @type {Settings} */
+          this._settingsStore.discardLocal();
+          this._applyAdoptedSettings();
+          this._withScrollPreserved(() => this._renderPanel());
+          try {
+            this.ui.addToaster({ title: "Collection Icons", message: "Reverted to synced settings", dismissible: true, autoDestroyTime: 3e3 });
+          } catch {
+          }
+        }, "onDiscard")
+      };
     }
-    async _saveCustomConfigNow() {
-      if (this._configSaveInFlight) {
-        this._configSaveQueued = true;
-        return;
-      }
-      this._configSaveInFlight = true;
-      try {
-        const plugin = await this._ownGlobalPlugin();
-        if (!plugin || !plugin.saveConfiguration) {
-          if (!this._isUnloading) this._scheduleConfigSave(1500);
-          return;
-        }
-        const conf = plugin.getConfiguration ? plugin.getConfiguration() : this.getConfiguration();
-        const custom = conf && conf.custom && typeof conf.custom === "object" ? conf.custom : {};
-        const nextSettings = this._normalizeSettings(this._settings);
-        if (JSON.stringify(custom.settings || {}) === JSON.stringify(nextSettings)) {
-          this._configSaveDirty = false;
-          return;
-        }
-        await plugin.saveConfiguration(
-          /** @type {any} */
-          configWithPluginVersion(conf, {
-            schemaVersion: 1,
-            settings: nextSettings
-          }, PLUGIN_VERSION)
-        );
-        this._configSaveDirty = false;
-      } catch (err) {
-        if (!this._isUnloading) this._scheduleConfigSave(1500);
-        this._log("Unable to save synced settings config", err);
-      } finally {
-        this._configSaveInFlight = false;
-        if (this._configSaveQueued && !this._isUnloading) {
-          this._configSaveQueued = false;
-          this._scheduleConfigSave();
-        }
-      }
-    }
-    async _ownGlobalPlugin() {
-      try {
-        const ownGuid = this.getGuid && this.getGuid();
-        const plugins = await this.data.getAllGlobalPlugins();
-        return plugins.find((p) => p && p.getGuid && p.getGuid() === ownGuid) || plugins.find((p) => p && p.getName && p.getName() === "Collection Icons") || null;
-      } catch {
-        return null;
-      }
+    /** Swap just the pill cluster — never nukes inputs mid-edit. */
+    _refreshScopePill() {
+      const el2 = this._panelEl?.querySelector?.(".tps-scope");
+      if (el2) el2.replaceWith(scopeCluster(this._scopeArgs()));
     }
     /** @returns {Record<string, string>} GUID → CSS color string */
     _loadCollectionColors() {
@@ -5372,18 +5535,11 @@ ${report}
         onHelperToggle: /* @__PURE__ */ __name((open) => {
           this._headerHelperOpen = open;
         }, "onHelperToggle"),
+        scope: this._scopeArgs(),
         killSwitch: {
           on: !this._disabled,
           onToggle: /* @__PURE__ */ __name((nextOn) => {
-            if (this._configSaveTimer) {
-              clearTimeout(this._configSaveTimer);
-              this._configSaveTimer = null;
-            }
-            this._configSaveDirty = false;
-            void setPluginDisabled(this, !nextOn, PLUGIN_VERSION, {
-              schemaVersion: 1,
-              settings: this._normalizeSettings(this._settings)
-            });
+            void setPluginDisabled(this, !nextOn, PLUGIN_VERSION);
           }, "onToggle")
         },
         feedback: { data: this.data }
@@ -5501,7 +5657,7 @@ ${report}
         outlineVariation: { ...DEFAULT_SETTINGS.outlineVariation }
       };
       this._settings = next;
-      this._saveSettings(250);
+      this._saveSettings();
       this._refreshPanelAttributes(true);
       this._schedulePersistentColorRules(0);
       this._scheduleDecorate(this._observedRoot || document.body);
@@ -5521,7 +5677,7 @@ ${report}
       cb.checked = !!this._settings[key];
       cb.addEventListener("change", () => {
         this._settings[key] = cb.checked;
-        this._saveSettings(250);
+        this._saveSettings();
         this._refreshPanelAttributes();
         this._scheduleDecorate();
       });
@@ -5550,14 +5706,14 @@ ${report}
         if (!r.checked) return;
         if (key === "visualTreatment") {
           this._settings.visualTreatment = value === "chip" ? "chip" : "native";
-          this._saveSettings(250);
+          this._saveSettings();
           this._refreshPanelAttributes();
           this._scheduleDecorate();
           this._withScrollPreserved(() => this._renderPanel());
           return;
         }
         this._settings[key] = value;
-        this._saveSettings(250);
+        this._saveSettings();
         this._refreshPanelAttributes();
         this._scheduleDecorate();
       });
@@ -5642,7 +5798,7 @@ ${report}
         this._refreshPanelAttributes();
         this._schedulePersistentColorRules(0);
         this._scheduleDecorate(this._observedRoot || document.body);
-        this._saveSettings(350);
+        this._saveSettings();
       }, "apply");
       const commitDraft = /* @__PURE__ */ __name(() => {
         const raw = input.value.trim();
@@ -5736,7 +5892,7 @@ ${report}
           this._refreshPanelAttributes();
           this._schedulePersistentColorRules(0);
           this._scheduleDecorate(this._observedRoot || document.body);
-          this._saveSettings(350);
+          this._saveSettings();
         }, "apply");
         const commitDraft = /* @__PURE__ */ __name(() => {
           const raw = input.value.trim();
@@ -5802,7 +5958,7 @@ ${report}
       this._refreshPanelAttributes();
       this._schedulePersistentColorRules(0);
       this._scheduleDecorate(this._observedRoot || document.body);
-      this._saveSettings(250);
+      this._saveSettings();
     }
     /**
      * Tint control ripped from collection-colors' `_renderVariationGroup`: an HSL | Tailwind mode
@@ -5918,13 +6074,13 @@ ${report}
         valueEl.textContent = fmt(v);
         this._refreshPanelAttributes();
         this._schedulePersistentColorRules(80);
-        this._saveSettings(900);
+        this._saveSettings();
       }, "apply");
       range.addEventListener("input", () => apply(Number(range.value)));
-      range.addEventListener("change", () => this._saveSettings(150));
+      range.addEventListener("change", () => this._saveSettings());
       reset.addEventListener("click", () => {
         apply(resetTo);
-        this._saveSettings(150);
+        this._saveSettings();
       });
       const inner = document.createElement("div");
       inner.className = "slider-inner";
