@@ -1658,7 +1658,7 @@ var plugins = (() => {
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.0.5";
+  var PLUGIN_VERSION = "1.0.8";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -1681,6 +1681,7 @@ var plugins = (() => {
   var GUID_ATTR = "data-ci-guid";
   var COLORED_ATTR = "data-ci-colored";
   var COLOR_VAR = "--plg-ci-color";
+  var NEUTRAL_COLOR = "var(--text-muted, #8b8b8b)";
   var VISUAL_TREATMENTS = (
     /** @type {const} */
     [
@@ -1925,6 +1926,14 @@ var plugins = (() => {
     _recordToCollGuid = /* @__PURE__ */ new Map();
     /** @type {Record<string, string>} */
     _colorsByGuid = {};
+    /** Serialized _colorsByGuid — lets an unchanged color map skip the rebuild + decorate pass. */
+    /** @type {string | null} */
+    _colorsSerialized = null;
+    /** Last raw localStorage string for the colors cache, for a cheap same-tab change check. */
+    /** @type {string | null} */
+    _colorsRaw = null;
+    /** @type {ReturnType<typeof setInterval> | null} */
+    _colorsPoll = null;
     /** @type {MutationObserver | null} */
     _editorObserver = null;
     /** @type {ReturnType<typeof setTimeout> | null} */
@@ -1996,6 +2005,7 @@ var plugins = (() => {
         this._injectStaticCSS();
         this._refreshPanelAttributes(true);
         this._watchAppearance();
+        this._watchCollectionColors();
         this.ui.registerCustomPanelType(PANEL_TYPE, (panel) => {
           try {
             panel.setTitle("Configure Collection Icons");
@@ -2037,9 +2047,8 @@ var plugins = (() => {
         this._storageListener = (e) => {
           if (!e.key) return;
           if (e.key.startsWith("collection-colors/") && e.key.endsWith("/colors")) {
-            this._colorsByGuid = this._loadCollectionColors();
-            this._schedulePersistentColorRules(80);
-            this._scheduleDecorate(this._observedRoot || document.body);
+            const next = this._readCachedCollectionColors();
+            if (next) this._adoptCollectionColors(next);
           }
         };
         window.addEventListener("storage", this._storageListener);
@@ -2140,6 +2149,10 @@ var plugins = (() => {
       if (this._appearanceObserver) {
         this._appearanceObserver.disconnect();
         this._appearanceObserver = null;
+      }
+      if (this._colorsPoll) {
+        clearInterval(this._colorsPoll);
+        this._colorsPoll = null;
       }
       if (this._appearanceRaf) {
         cancelAnimationFrame(this._appearanceRaf);
@@ -2401,16 +2414,70 @@ var plugins = (() => {
         const conf = colorsPlugin && colorsPlugin.getConfiguration ? colorsPlugin.getConfiguration() : null;
         const custom = conf && conf.custom && typeof conf.custom === "object" ? conf.custom : {};
         const fromConfig = this._normalizeCollectionColors(custom.colors || {});
-        if (!Object.keys(fromConfig).length) return;
-        this._colorsByGuid = {
-          ...fromConfig,
-          ...this._loadCollectionColors()
-        };
-        this._schedulePersistentColorRules(80);
-        this._scheduleDecorate(this._observedRoot || document.body);
+        const local = this._readCachedCollectionColors();
+        this._adoptCollectionColors(local !== null ? local : fromConfig);
       } catch (err) {
         this._log("Unable to load Collection Colors config", err);
       }
+    }
+    /**
+     * Collection Colors' localStorage cache, or null when it has never been written here.
+     * An empty object is a REAL state (every color cleared) and must not read as "no cache" —
+     * that distinction is what lets a cleared color propagate instead of falling back to config.
+     *
+     * @returns {Record<string, string> | null}
+     */
+    _readCachedCollectionColors() {
+      try {
+        const raw = localStorage.getItem(this._colorsKey());
+        if (raw === null) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return null;
+        return this._normalizeCollectionColors(parsed);
+      } catch {
+        return null;
+      }
+    }
+    /**
+     * Swap in a new guid→color map and repaint, but only when it actually differs — this runs
+     * from a poll, so a no-op must stay a no-op (no rule rebuild, no decorate pass).
+     *
+     * @param {Record<string, string>} next
+     */
+    _adoptCollectionColors(next) {
+      const serialized = JSON.stringify(next);
+      if (serialized === this._colorsSerialized) return;
+      this._colorsSerialized = serialized;
+      const prevKeys = Object.keys(this._colorsByGuid).sort().join(",");
+      const nextKeys = Object.keys(next).sort().join(",");
+      this._colorsByGuid = next;
+      if (prevKeys !== nextKeys) {
+        this._refreshAndRedecorate();
+        return;
+      }
+      this._schedulePersistentColorRules(80);
+      this._scheduleDecorate(this._observedRoot || document.body);
+    }
+    /**
+     * Watch Collection Colors' localStorage cache for edits made in THIS tab.
+     *
+     * The `storage` event only fires in OTHER tabs — never in the one that wrote the value — and
+     * Collection Colors runs in this same page, so its live edits are invisible to that listener.
+     * Collection Colors also defers saveConfiguration (and the global-plugin.updated event it
+     * emits) to panel close, so without this poll a cleared color stays on screen for as long as
+     * its panel is open. Compares the raw string, so an unchanged cache costs one getItem.
+     */
+    _watchCollectionColors() {
+      this._colorsPoll = setInterval(() => {
+        try {
+          const raw = localStorage.getItem(this._colorsKey());
+          if (raw === this._colorsRaw) return;
+          this._colorsRaw = raw;
+          const next = this._readCachedCollectionColors();
+          if (next) this._adoptCollectionColors(next);
+        } catch {
+        }
+      }, 1e3);
     }
     // ─── Collection / record icon resolution ──────────────────────────────────
     async _cacheCollections() {
@@ -3092,7 +3159,7 @@ var plugins = (() => {
           continue;
         }
         const icon = this._resolveIcon(guid);
-        if (!icon) continue;
+        const color = this._resolveColor(guid);
         const ref = this._refForLeaf(el);
         const title = this._titleForRef(ref, el, guid);
         const host = ref || title || el.parentElement;
@@ -3100,12 +3167,13 @@ var plugins = (() => {
         const arrow = this._arrowForRef(ref, title, el);
         if (seenParents.has(host)) continue;
         seenParents.add(host);
-        iconsNeeded.add(icon);
-        entries.push({ el, host, title, arrow, guid, icon, color: this._resolveColor(guid) });
+        if (icon) iconsNeeded.add(icon);
+        entries.push({ el, host, title, arrow, guid, icon, color });
       }
       this._ensureIconRules(iconsNeeded);
       let iconMapChanged = false;
       for (const { guid, icon } of entries) {
+        if (!icon) continue;
         if (this._iconsByGuid[guid] !== icon) {
           this._iconsByGuid[guid] = icon;
           iconMapChanged = true;
@@ -3211,7 +3279,11 @@ var plugins = (() => {
     /**
      * During active editing Thymer can momentarily redraw an inline-ref row without the final
      * leaf structure in place. Only remove decoration after a short delay and only when the
-     * parent still has no direct data-guid leaf that resolves to an icon.
+     * parent still has no direct data-guid leaf that resolves to a decoration.
+     *
+     * Every inline ref is decoratable now (icon and color are both optional — see _decorateImpl),
+     * so any direct data-guid leaf counts. Testing for an icon here would let cleanup strip the
+     * decoration back off a ref that legitimately has no icon.
      *
      * @param {HTMLElement} parent
      */
@@ -3220,8 +3292,7 @@ var plugins = (() => {
         if (!(child instanceof HTMLElement)) continue;
         if (!child.hasAttribute("data-guid")) continue;
         if (child.querySelector("[data-guid]")) continue;
-        const guid = child.getAttribute("data-guid");
-        if (guid && this._resolveIcon(guid)) return true;
+        if (child.getAttribute("data-guid")) return true;
       }
       return false;
     }
@@ -3234,19 +3305,17 @@ var plugins = (() => {
      * @param {HTMLElement | null} title `.lineitem-ref-title`, used for chip/text tinting.
      * @param {HTMLElement | null} arrow Native `.lineitem-lineref` arrow slot.
      * @param {string} guid
-     * @param {string} icon  Tabler icon class, e.g. "ti-rocket".
+     * @param {string | null} icon  Tabler icon class, e.g. "ti-rocket". Null for a color-only ref.
      * @param {string | null} color
      */
     _decorateRef(host, title, arrow, guid, icon, color) {
-      const normalizedIcon = normalizeTablerIcon(icon);
-      if (!normalizedIcon) return;
-      icon = normalizedIcon;
-      this._ensureIconRule(icon);
+      icon = icon ? normalizeTablerIcon(icon) : null;
+      if (icon) this._ensureIconRule(icon);
       this._markDecorated(host, guid, color);
       if (title && title !== host) this._markDecorated(title, guid, color);
       if (!arrow) return;
       if (arrow.getAttribute(GUID_ATTR) !== guid) arrow.setAttribute(GUID_ATTR, guid);
-      if (this._settings.replaceTrailingArrowIcon) {
+      if (this._settings.replaceTrailingArrowIcon && icon) {
         if (arrow.getAttribute(ICON_ATTR) !== icon) arrow.setAttribute(ICON_ATTR, icon);
       } else {
         arrow.removeAttribute(ICON_ATTR);
@@ -3749,22 +3818,30 @@ var plugins = (() => {
 				border-bottom: none !important;
 				border-color: transparent !important;
 			}
-			/* Guarded on the applied marker on purpose. Thymer wipes every plugin attr when it
-			   re-renders a line, but keeps its own data-guid \u2014 an unguarded neutralizer here
-			   outranks the persistent per-guid chip rule (:not() adds its argument's
-			   specificity) and would force a re-rendered colored ref transparent, erasing the
-			   very fallback built to survive the re-render. Only strip refs we decorated and
-			   found colorless. */
+			/* NEUTRAL CHIP \u2014 a decorated ref whose collection has no colour. It gets the exact same
+			   chip geometry as a coloured one (same _chipPaintCss: radius, padding, outline,
+			   box-decoration-break), just driven by a grey instead of a collection colour, so a row
+			   of refs reads as one consistent set and only the hue varies.
+
+			   Guarded on the applied marker on purpose. Thymer wipes every plugin attr when it
+			   re-renders a line but keeps its own data-guid, and :not() contributes its argument's
+			   specificity \u2014 so an unguarded rule here outranks the persistent per-guid chip rule
+			   and would repaint a re-rendered COLOURED ref neutral, erasing the very fallback built
+			   to survive the re-render. Only refs we decorated and found colourless. */
 			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${APPLIED_ATTR}="1"]:not([${COLORED_ATTR}="1"]),
 			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${APPLIED_ATTR}="1"]:not([${COLORED_ATTR}="1"]) {
+				${COLOR_VAR}: var(--plg-ci-neutral, ${NEUTRAL_COLOR});
+				--plg-ci-outline-color: var(--plg-ci-neutral, ${NEUTRAL_COLOR});
 				vertical-align: baseline !important;
-				background-color: transparent !important;
-				background-image: none !important;
-				box-shadow: none !important;
 				text-decoration: none !important;
 				text-decoration-color: transparent !important;
 				border-bottom: none !important;
 				border-color: transparent !important;
+				${this._chipPaintCss()}
+			}
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${APPLIED_ATTR}="1"]:not([${COLORED_ATTR}="1"]):hover,
+			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${APPLIED_ATTR}="1"]:not([${COLORED_ATTR}="1"]):hover {
+				background-color: color-mix(in srgb, var(${COLOR_VAR}) var(--plg-ci-chip-mix-hover, 50%), var(--plg-ci-chip-shade, #000)) !important;
 			}
 			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[data-guid][${COLORED_ATTR}="1"],
 			body[data-${ROOT_CLASS}-mode="chip"] .editor-panel .lineitem-ref-title[${GUID_ATTR}][${COLORED_ATTR}="1"] {
