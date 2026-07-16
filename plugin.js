@@ -2998,7 +2998,7 @@ ${report}
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.2.3";
+  var PLUGIN_VERSION = "1.2.4";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -3706,7 +3706,13 @@ ${report}
         localUnavailable: !!this._settingsStore?.isLocalUnavailable(),
         onPush: /* @__PURE__ */ __name(() => {
           void this._settingsStore?.pushToAll().then((ok) => {
-            if (!ok) return;
+            if (!ok) {
+              try {
+                this.ui.addToaster({ title: "Collection Icons", message: 'Could not save to all devices \u2014 the plugin config could not be written. Check the plugin\u2019s Config (does it have a "name"?) and try again.', dismissible: true, autoDestroyTime: 6e3 });
+              } catch {
+              }
+              return;
+            }
             try {
               this.ui.addToaster({ title: "Collection Icons", message: "Settings applied to all devices", dismissible: true, autoDestroyTime: 3e3 });
             } catch {
