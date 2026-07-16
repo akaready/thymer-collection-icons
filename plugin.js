@@ -2520,6 +2520,50 @@ ${report}
     }
   }
   __name(syncPluginVersionOnLoad, "syncPluginVersionOnLoad");
+  async function healPluginIdentity(plugin, identity) {
+    if (!identity || typeof identity.name !== "string" || !identity.name.trim()) return;
+    const STUB_NAMES = ["New Global Plugin", "New Collection", "My Global Plugin"];
+    const api = await resolveConfigApi(plugin);
+    if (!api) return;
+    let conf = {};
+    try {
+      conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
+    } catch {
+      return;
+    }
+    if (conf.ver === void 0 && conf.custom === void 0) return;
+    const hasStubName = typeof conf.name !== "string" || !conf.name.trim() || STUB_NAMES.includes(conf.name.trim());
+    const missingRepo = identity.sourceRepo && conf.__source_repo === void 0;
+    if (!hasStubName && !missingRepo) return;
+    try {
+      let ws = "default";
+      try {
+        ws = plugin.getWorkspaceGuid?.() || "default";
+      } catch {
+      }
+      const guardKey = `tps-identity-healed/${ws}/${identity.name}`;
+      if (sessionStorage.getItem(guardKey) === "1") return;
+      sessionStorage.setItem(guardKey, "1");
+    } catch {
+    }
+    const next = { ...conf };
+    if (hasStubName) {
+      next.name = identity.name;
+      if (identity.icon) next.icon = identity.icon;
+      if (identity.description) next.description = identity.description;
+    }
+    if (missingRepo) {
+      next.__source_repo = identity.sourceRepo;
+      if (conf.__source_files === void 0 && identity.sourceFiles) {
+        next.__source_files = { ...identity.sourceFiles };
+      }
+    }
+    try {
+      await api.saveConfiguration(next);
+    } catch {
+    }
+  }
+  __name(healPluginIdentity, "healPluginIdentity");
 
   // ../../shared/plugin-kill-switch.js
   var MARKER_SYNC_HORIZON_MS = 9e4;
@@ -2621,6 +2665,7 @@ ${report}
     let dirty = false;
     let saveInFlight = false;
     let flushTimer = null;
+    let settleTimer = null;
     const fnv1a = /* @__PURE__ */ __name((s) => {
       let h2 = 2166136261;
       for (let i = 0; i < s.length; i++) {
@@ -2877,6 +2922,43 @@ ${report}
         clearCache();
       },
       /**
+       * Post-push pill settle. A successful push saves the config, which reloads
+       * the plugin; the fresh instance can render its scope pill from a config
+       * snapshot the save hasn't reached yet, and the follow-up config event is
+       * filtered as local (attachLifecycle, by design) — so nothing repaints and
+       * the pill sits on "This device" even though the push landed. Re-read the
+       * synced config on a short interval until it converges: when the adopted
+       * settings changed, `onAdopt(settings)` fires (apply + full panel render);
+       * otherwise `refreshPill()` fires (pill-only repaint). A genuine local
+       * edit still wins — load() carries it through the crash cache. No-ops
+       * instantly when already settled. Call from the push success callback AND
+       * the post-reload panel heal; returns a cancel fn for onUnload.
+       */
+      settleAfterPush({ onAdopt = void 0, refreshPill = void 0, tries = 8, intervalMs = 500 } = {}) {
+        if (settleTimer) {
+          clearTimeout(settleTimer);
+          settleTimer = null;
+        }
+        const tick = /* @__PURE__ */ __name((left) => {
+          const before = JSON.stringify(current);
+          const next = this.load().settings;
+          if (JSON.stringify(next) !== before) onAdopt?.(next);
+          else refreshPill?.();
+          if (left <= 0 || !this.isDiverged()) return;
+          settleTimer = setTimeout(() => {
+            settleTimer = null;
+            tick(left - 1);
+          }, intervalMs);
+        }, "tick");
+        tick(tries);
+        return () => {
+          if (settleTimer) {
+            clearTimeout(settleTimer);
+            settleTimer = null;
+          }
+        };
+      },
+      /**
        * Live-follow: when another device does "apply to all" (or edits propagate),
        * `global-plugin.updated` (or, for CollectionPlugins, the collection event the
        * adopter also wires) fires; re-read this device's synced settings and, if
@@ -2917,6 +2999,10 @@ ${report}
         }
         return () => {
           cancelFlush();
+          if (settleTimer) {
+            clearTimeout(settleTimer);
+            settleTimer = null;
+          }
           try {
             document.removeEventListener("visibilitychange", onHide);
             window.removeEventListener("pagehide", onPageHide);
@@ -2998,7 +3084,7 @@ ${report}
     return TAILWIND_SHADES.includes(n) ? n : 500;
   }
   __name(normalizeTailwindShade, "normalizeTailwindShade");
-  var PLUGIN_VERSION = "1.2.4";
+  var PLUGIN_VERSION = "1.2.5";
   var COLLECTION_COLORS_REPO = "https://github.com/akaready/thymer-collection-colors";
   var MANIFEST = Object.freeze({
     name: "Collection Icons",
@@ -3308,6 +3394,8 @@ ${report}
     _settingsStore = null;
     /** @type {(() => void) | null} */
     _detachSettingsLifecycle = null;
+    /** @type {(() => void) | null} */
+    _cancelPillSettle = null;
     _isUnloading = false;
     /** @type {ReturnType<typeof setTimeout> | null} */
     _colorRulesTimer = null;
@@ -3335,6 +3423,13 @@ ${report}
       pingInstall("collection-icons");
       pingActive("collection-icons");
       void syncPluginVersionOnLoad(this, PLUGIN_VERSION);
+      void healPluginIdentity(this, {
+        name: "Collection Icons",
+        icon: "link",
+        description: "Replace Thymer's inline-link arrow with each collection's or page's icon.",
+        sourceRepo: "https://github.com/akaready/thymer-collection-icons",
+        sourceFiles: { branch: "main", json: "plugin.json", js: "plugin.js" }
+      });
       this._disabled = readKillSwitch(this);
       try {
         this._cancelDeferredCleanup();
@@ -3380,6 +3475,7 @@ ${report}
           if (staleRoot instanceof HTMLElement) {
             this._panelEl = staleRoot;
             this._renderPanel();
+            this._refreshScopePillUntilSettled();
           }
         } catch {
         }
@@ -3468,6 +3564,8 @@ ${report}
       } catch {
       }
       this._detachSettingsLifecycle = null;
+      this._cancelPillSettle?.();
+      this._cancelPillSettle = null;
       try {
         if (this._editorObserver) this._editorObserver.disconnect();
       } catch {
@@ -3717,7 +3815,7 @@ ${report}
               this.ui.addToaster({ title: "Collection Icons", message: "Settings applied to all devices", dismissible: true, autoDestroyTime: 3e3 });
             } catch {
             }
-            this._refreshScopePill();
+            this._refreshScopePillUntilSettled();
           });
         }, "onPush"),
         onDiscard: /* @__PURE__ */ __name(() => {
@@ -3737,6 +3835,20 @@ ${report}
     _refreshScopePill() {
       const el2 = this._panelEl?.querySelector?.(".tps-scope");
       if (el2) el2.replaceWith(scopeCluster(this._scopeArgs()));
+    }
+    /** Post-push pill settle — see settleAfterPush in shared/plugin-settings.js. */
+    _refreshScopePillUntilSettled() {
+      if (!this._settingsStore) return;
+      this._cancelPillSettle?.();
+      this._cancelPillSettle = this._settingsStore.settleAfterPush({
+        onAdopt: /* @__PURE__ */ __name((settings) => {
+          this._settings = /** @type {Settings} */
+          settings;
+          this._applyAdoptedSettings();
+          this._withScrollPreserved(() => this._renderPanel());
+        }, "onAdopt"),
+        refreshPill: /* @__PURE__ */ __name(() => this._refreshScopePill(), "refreshPill")
+      });
     }
     /** @returns {Record<string, string>} GUID → CSS color string */
     _loadCollectionColors() {
